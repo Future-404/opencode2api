@@ -491,6 +491,11 @@ func (g *Gateway) doAnonymousUpstream(ctx context.Context, route models.Route, b
 				g.logger.Warn("upstream rejected the request; not trying other upstreams", "component", "upstream", "event", "deterministic_rejection", "request_id", ids.Request, "attempt", attempts, "tier", config.TierZen, "upstream", config.RedactURL(baseURL), "status", resp.StatusCode, "duration_ms", duration.Milliseconds())
 				break
 			} else {
+				if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
+					ids.Session = identity.RotateSessionID()
+					ids.ChildSession = ids.Session
+					ids.ParentSession = ""
+				}
 				g.logger.Debug("anonymous upstream returned an error response; trying the next upstream or proxy", "component", "upstream", "event", "anonymous_attempt_response_failed", "request_id", ids.Request, "attempt", attempts, "tier", config.TierZen, "upstream", config.RedactURL(baseURL), "key_id", "anonymous", "channel", "anonymous", "anonymous", true, "proxy", config.RedactURL(node.proxy.name), "status", resp.StatusCode, "duration_ms", duration.Milliseconds())
 			}
 			if index+1 < len(upstreams) && !node.proxy.healthy.Load() {
@@ -1050,10 +1055,10 @@ func (g *Gateway) observeAnonymousResult(ctx context.Context, node *anonymousNod
 		g.anonymous.NoteSuccess()
 	} else {
 		g.anonymous.MarkFailure(node, resp, err)
-		if resp != nil && peekNetworkAbuseBlock(resp) {
-			// An IP block is scoped to this exit; doAnonymousUpstream marks it
-			// blocked and opens the lane breaker only when no exit is left.
-			// Counting it here as well would stop the other exits early.
+		if resp != nil && (peekNetworkAbuseBlock(resp) || resp.StatusCode == http.StatusTooManyRequests) {
+			// An IP block or rate-limit is scoped to this exit/session;
+			// doAnonymousUpstream handles rotating the session and exit.
+			// Counting it here against the whole lane would trip the breaker early.
 			return
 		}
 		if pause, tripped := g.anonymous.NoteFailure(); tripped {

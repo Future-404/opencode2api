@@ -3,6 +3,8 @@ FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=$GOPROXY
 
 WORKDIR /src
 

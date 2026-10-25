@@ -232,6 +232,23 @@ func CanonicalSessionID(signal string) string {
 	return "ses_" + timePart + randomPart
 }
 
+// RotateSessionID generates a fresh official-shaped descending session ID with the current timestamp.
+func RotateSessionID() string {
+	now := time.Now()
+	current := uint64(now.UnixMilli())<<12 | 1
+	inverted := ^current & 0xFFFFFFFFFFFF
+	timePart := hex.EncodeToString([]byte{
+		byte(inverted >> 40), byte(inverted >> 32), byte(inverted >> 24),
+		byte(inverted >> 16), byte(inverted >> 8), byte(inverted),
+	})
+	buf := make([]byte, 10)
+	if _, err := rand.Read(buf); err != nil {
+		buf = []byte(fmt.Sprintf("%010d", now.UnixNano()%10000000000))
+	}
+	randomPart := base62Fixed(new(big.Int).SetBytes(buf), 14)
+	return "ses_" + timePart + randomPart
+}
+
 // isOfficialSessionID reports whether signal is a session minted by the
 // official client's Identifier.descending(). A value with the right ses_ shape
 // but a foreign encoding (raw hash or ascending ID) is not official.
@@ -239,11 +256,10 @@ func isOfficialSessionID(signal string) bool {
 	return canonicalSessionPattern.MatchString(signal) && descendingTimePartPattern.MatchString(signal[4:16])
 }
 
-// sessionTimestampWindow bounds how far before today a synthesized session's
-// timestamp may fall. The upstream accepts a date roughly a year away in either
-// direction and rejects anything beyond with HTTP 429, so a month leaves room
-// for clock skew and long-lived processes while never approaching the edge.
-const sessionTimestampWindow = 30 * 24 * time.Hour
+// sessionTimestampWindow bounds how far before now a synthesized session's
+// timestamp may fall. OpenCode rejects sessions with timestamps too far in the past
+// with HTTP 429, so we restrict it to a recent 30-minute window.
+const sessionTimestampWindow = 30 * time.Minute
 
 // descendingTimePart renders a plausible recent timestamp in the official
 // client's Identifier.descending() layout: a 36-bit timestamp shifted into the
@@ -253,7 +269,7 @@ const sessionTimestampWindow = 30 * 24 * time.Hour
 func descendingTimePart(now time.Time, hash []byte) string {
 	window := uint64(sessionTimestampWindow / time.Millisecond)
 	offset := (uint64(hash[0])<<24 | uint64(hash[1])<<16 | uint64(hash[2])<<8 | uint64(hash[3])) % window
-	base := now.UTC().Truncate(24 * time.Hour).Add(-time.Duration(offset) * time.Millisecond)
+	base := now.UTC().Add(-time.Duration(offset) * time.Millisecond)
 	current := uint64(base.UnixMilli())<<12 | 1
 	inverted := ^current & 0xFFFFFFFFFFFF
 	return hex.EncodeToString([]byte{

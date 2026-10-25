@@ -313,6 +313,11 @@ func (g *Gateway) doWarpAnonymousUpstream(ctx context.Context, route models.Rout
 				g.logger.Warn("upstream rejected the request; not trying other upstreams", "component", "upstream", "event", "deterministic_rejection", "request_id", ids.Request, "attempt", attempts, "tier", config.TierZen, "upstream", config.RedactURL(baseURL), "status", status, "duration_ms", duration.Milliseconds())
 				break
 			}
+			if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
+				ids.Session = identity.RotateSessionID()
+				ids.ChildSession = ids.Session
+				ids.ParentSession = ""
+			}
 			g.logger.Debug("anonymous WARP upstream returned an error response; trying the next upstream or exit", "component", "upstream", "event", "anonymous_attempt_response_failed", "request_id", ids.Request, "attempt", attempts, "tier", config.TierZen, "upstream", config.RedactURL(baseURL), "key_id", "anonymous", "channel", "anonymous", "anonymous", true, "proxy", egress, "status", status, "duration_ms", duration.Milliseconds())
 			if index+1 < len(upstreams) {
 				break
