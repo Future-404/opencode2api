@@ -491,12 +491,16 @@ func (g *Gateway) doAnonymousUpstream(ctx context.Context, route models.Route, b
 				g.logger.Warn("upstream rejected the request; not trying other upstreams", "component", "upstream", "event", "deterministic_rejection", "request_id", ids.Request, "attempt", attempts, "tier", config.TierZen, "upstream", config.RedactURL(baseURL), "status", resp.StatusCode, "duration_ms", duration.Milliseconds())
 				break
 			} else {
+				g.logger.Debug("anonymous upstream returned an error response; trying the next upstream or proxy", "component", "upstream", "event", "anonymous_attempt_response_failed", "request_id", ids.Request, "attempt", attempts, "tier", config.TierZen, "upstream", config.RedactURL(baseURL), "key_id", "anonymous", "channel", "anonymous", "anonymous", true, "proxy", config.RedactURL(node.proxy.name), "status", resp.StatusCode, "duration_ms", duration.Milliseconds())
 				if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
 					ids.Session = identity.RotateSessionID()
 					ids.ChildSession = ids.Session
 					ids.ParentSession = ""
+					// An IP rate-limit is exit-specific. Skip the remaining legacy
+					// upstreams (like /zen) on this exit and advance directly to the
+					// next proxy/session attempt.
+					break
 				}
-				g.logger.Debug("anonymous upstream returned an error response; trying the next upstream or proxy", "component", "upstream", "event", "anonymous_attempt_response_failed", "request_id", ids.Request, "attempt", attempts, "tier", config.TierZen, "upstream", config.RedactURL(baseURL), "key_id", "anonymous", "channel", "anonymous", "anonymous", true, "proxy", config.RedactURL(node.proxy.name), "status", resp.StatusCode, "duration_ms", duration.Milliseconds())
 			}
 			if index+1 < len(upstreams) && !node.proxy.healthy.Load() {
 				break

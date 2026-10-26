@@ -226,7 +226,7 @@ func textFragments(value any) []string {
 // the marker.
 func carriesOpenCodePrompt(value any) bool {
 	for _, part := range textFragments(value) {
-		if strings.Contains(part, opencodePromptMarker) {
+		if strings.Contains(part, opencodePromptMarker) || strings.Contains(part, "You are an AI agent running in OpenCode") {
 			return true
 		}
 	}

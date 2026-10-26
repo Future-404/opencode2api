@@ -34,7 +34,7 @@ type opencodeToolDefinition struct {
 // keeping the captured order makes the wire body stable.
 var v2OfficialToolOrder = []string{
 	"edit", "execute", "glob", "grep", "question", "read", "shell",
-	"skill", "subagent", "webfetch", "websearch", "write", "patch",
+	"skill", "subagent", "webfetch", "websearch", "write",
 }
 
 var (

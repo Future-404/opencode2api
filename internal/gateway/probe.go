@@ -97,7 +97,7 @@ func (g *Gateway) probeFreeModel(ctx context.Context, model string) probeResult 
 	if !d.AvailableZen || !g.catalog.Supported(model) {
 		return probeResult{reason: "unsupported_probe"}
 	}
-	ids := identity.RequestIDs{Session: identity.CanonicalSessionID("availability:" + model), Project: "opencode2api:default-project"}
+	ids := identity.RequestIDs{Session: identity.RotateSessionID(), Project: "opencode2api:default-project"}
 	type lane struct {
 		key, name, baseURL string
 		client             *http.Client
@@ -149,15 +149,37 @@ func (g *Gateway) probeFreeModel(ctx context.Context, model string) probeResult 
 		if ctx.Err() != nil {
 			return probeResult{reason: "canceled"}
 		}
+		probeClient := lane.client
+		probeIDs := ids
 		run := func(effort string) probeResult {
-			return g.probeAttempt(ctx, lane.client, lane.baseURL, lane.key, model, protocol, ids, effort, lane.warp)
+			return g.probeAttempt(ctx, probeClient, lane.baseURL, lane.key, model, protocol, probeIDs, effort, lane.warp)
 		}
-		result = run("")
-		result.channel = lane.name
-		if result.success && lane.name == "anonymous" {
-			// A successful anonymous probe proves the lane answers again;
-			// close the breaker so user traffic resumes immediately.
-			g.anonymous.NoteSuccess()
+		maxProbeTries := 1
+		if lane.name == "anonymous" && !lane.warp && g.anonymous.Len() > 0 {
+			maxProbeTries = 4
+		}
+		for try := 0; try < maxProbeTries; try++ {
+			if try > 0 {
+				probeIDs.Session = identity.RotateSessionID()
+				probeIDs.ChildSession = probeIDs.Session
+				cursor := g.anonymous.CursorFor(probeIDs.Session)
+				if node := cursor.Next(); node != nil {
+					probeClient = g.inferenceClient(node.proxy, lane.baseURL, model, probeIDs.Session)
+				}
+			}
+			result = run("")
+			result.channel = lane.name
+			if result.success {
+				if lane.name == "anonymous" {
+					// A successful anonymous probe proves the lane answers again;
+					// close the breaker so user traffic resumes immediately.
+					g.anonymous.NoteSuccess()
+				}
+				break
+			}
+			if result.reason != "http_429" {
+				break
+			}
 		}
 		if result.success {
 			if g.cfg.ForcedEffort(model) == "auto" && protocol != wire.SystemOne {
