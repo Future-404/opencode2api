@@ -22,15 +22,17 @@ func ParseProxyEntry(raw string) (clean string, pool bool) {
 		trimmed = strings.TrimSpace(trimmed[len("pool+"):])
 		pool = true
 	}
-	if u, err := url.Parse(trimmed); err == nil && u.Host != "" {
+	// Direct #pool fragment check avoids mangling template proxies (e.g. {{session-id}})
+	// or colon-separated proxy credentials during url.Parse.
+	if idx := strings.LastIndex(trimmed, "#"); idx >= 0 && strings.EqualFold(strings.TrimSpace(trimmed[idx+1:]), "pool") {
+		pool = true
+		trimmed = strings.TrimSpace(trimmed[:idx])
+	} else if u, err := url.Parse(trimmed); err == nil && u.Host != "" {
 		if strings.EqualFold(strings.TrimSpace(u.Fragment), "pool") {
 			pool = true
 			u.Fragment = ""
 			trimmed = u.String()
 		}
-	} else if idx := strings.LastIndex(trimmed, "#"); idx >= 0 && strings.EqualFold(strings.TrimSpace(trimmed[idx+1:]), "pool") {
-		pool = true
-		trimmed = strings.TrimSpace(trimmed[:idx])
 	}
 	return trimmed, pool
 }

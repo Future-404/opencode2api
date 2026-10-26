@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -32,12 +34,25 @@ import (
 type proxyTransport struct {
 	index        int
 	name         string
+	cleanURL     string
 	pool         bool
+	isTemplate   bool
 	client       *http.Client
 	bun          *http.Client
 	healthy      atomic.Bool
 	checking     atomic.Bool
 	blockedUntil atomic.Int64
+
+	templateMu    sync.RWMutex
+	templateCache map[string]*templateClientEntry
+	perfCfg       config.PerformanceConfig
+	respTimeout   time.Duration
+}
+
+type templateClientEntry struct {
+	client   *http.Client
+	bun      *http.Client
+	lastUsed time.Time
 }
 
 // proxyTransports holds every configured proxy route, indexed by
@@ -430,6 +445,133 @@ func (p *proxyTransports) healthCounts() (total, healthy int) {
 	return len(p.items), healthy
 }
 
+func buildSingleProxyClient(clean string, isPool bool, cfg config.PerformanceConfig, responseHeaderTimeout time.Duration) (*http.Client, *http.Client, error) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = cfg.MaxIdleConns
+	transport.MaxIdleConnsPerHost = cfg.MaxIdleConnsPerHost
+	transport.MaxConnsPerHost = cfg.MaxConnsPerHost
+	transport.IdleConnTimeout = time.Duration(cfg.IdleConnTimeoutSeconds) * time.Second
+	transport.ResponseHeaderTimeout = responseHeaderTimeout
+	transport.ForceAttemptHTTP2 = !isPool
+	transport.DisableKeepAlives = isPool
+	if isPool {
+		// Cloning DefaultTransport after its first dial inherits the
+		// already-configured HTTP/2 ALPN and TLSNextProto map, which ignores
+		// DisableKeepAlives and req.Close and multiplexes every request over
+		// one CONNECT tunnel. An explicit empty TLSNextProto map and HTTP/1.1
+		// ALPN force a brand-new TCP + CONNECT tunnel per attempt.
+		transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
+		if transport.TLSClientConfig == nil {
+			transport.TLSClientConfig = &tls.Config{NextProtos: []string{"http/1.1"}}
+		} else {
+			tlsCfg := transport.TLSClientConfig.Clone()
+			tlsCfg.NextProtos = []string{"http/1.1"}
+			transport.TLSClientConfig = tlsCfg
+		}
+	}
+	transport.DialContext = (&net.Dialer{
+		Timeout:   time.Duration(cfg.ConnectTimeoutSeconds) * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+	var proxyURL *url.URL
+	if clean == "direct" {
+		transport.Proxy = nil
+	} else {
+		u, err := url.Parse(clean)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parse proxy %s: %w", config.RedactURL(clean), err)
+		}
+		transport.Proxy = http.ProxyURL(u)
+		proxyURL = u
+	}
+	bun, err := httpx.NewBunTransport(httpx.BunOptions{
+		Proxy:                 proxyURL,
+		ConnectTimeout:        time.Duration(cfg.ConnectTimeoutSeconds) * time.Second,
+		ResponseHeaderTimeout: responseHeaderTimeout,
+		IdleConnTimeout:       transport.IdleConnTimeout,
+		MaxIdleConnsPerHost:   cfg.MaxIdleConnsPerHost,
+		DisableKeepAlives:     isPool,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("proxy %s: %w", config.RedactURL(clean), err)
+	}
+	return &http.Client{Transport: transport}, &http.Client{Transport: bun}, nil
+}
+
+func sessionScope(session string) string {
+	if session == "" {
+		return "0000000000000000"
+	}
+	sum := sha256.Sum256([]byte(session))
+	return hex.EncodeToString(sum[:8])
+}
+
+// ClientForSession returns the appropriate HTTP client for this proxy.
+// Non-template proxies return the singleton client directly.
+// Template proxies (containing {{session-id}}) expand the template with a
+// deterministic 16-hex session scope and cache the resulting Transport per session.
+func (t *proxyTransport) ClientForSession(session string, isBun bool) *http.Client {
+	if t == nil {
+		return nil
+	}
+	if !t.isTemplate {
+		if isBun {
+			return t.bun
+		}
+		return t.client
+	}
+	scope := sessionScope(session)
+	expanded := strings.ReplaceAll(t.cleanURL, "{{session-id}}", scope)
+
+	t.templateMu.RLock()
+	entry, ok := t.templateCache[expanded]
+	t.templateMu.RUnlock()
+	if ok {
+		entry.lastUsed = time.Now()
+		if isBun {
+			return entry.bun
+		}
+		return entry.client
+	}
+
+	t.templateMu.Lock()
+	defer t.templateMu.Unlock()
+	if entry, ok = t.templateCache[expanded]; ok {
+		entry.lastUsed = time.Now()
+		if isBun {
+			return entry.bun
+		}
+		return entry.client
+	}
+
+	if len(t.templateCache) > 1000 {
+		cutoff := time.Now().Add(-15 * time.Minute)
+		for k, v := range t.templateCache {
+			if v.lastUsed.Before(cutoff) {
+				delete(t.templateCache, k)
+			}
+		}
+	}
+
+	c, bunClient, err := buildSingleProxyClient(expanded, t.pool, t.perfCfg, t.respTimeout)
+	if err != nil {
+		if isBun {
+			return t.bun
+		}
+		return t.client
+	}
+	newEntry := &templateClientEntry{
+		client:   c,
+		bun:      bunClient,
+		lastUsed: time.Now(),
+	}
+	t.templateCache[expanded] = newEntry
+	if isBun {
+		return newEntry.bun
+	}
+	return newEntry.client
+}
+
 // transportPool builds the HTTP clients of every configured proxy entry, each
 // entry starting healthy: a regular client and a Bun-disguised one
 // (httpx.BunTransport) sharing the proxy, connect timeout, idle settings and
@@ -441,56 +583,27 @@ func transportPool(proxies []string, cfg config.PerformanceConfig, responseHeade
 	p := &proxyTransports{items: make([]*proxyTransport, 0, len(proxies))}
 	for _, raw := range proxies {
 		clean, isPool := config.ParseProxyEntry(raw)
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.MaxIdleConns = cfg.MaxIdleConns
-		transport.MaxIdleConnsPerHost = cfg.MaxIdleConnsPerHost
-		transport.MaxConnsPerHost = cfg.MaxConnsPerHost
-		transport.IdleConnTimeout = time.Duration(cfg.IdleConnTimeoutSeconds) * time.Second
-		transport.ResponseHeaderTimeout = responseHeaderTimeout
-		transport.ForceAttemptHTTP2 = !isPool
-		transport.DisableKeepAlives = isPool
-		if isPool {
-			// Cloning DefaultTransport after its first dial inherits the
-			// already-configured HTTP/2 ALPN and TLSNextProto map, which ignores
-			// DisableKeepAlives and req.Close and multiplexes every request over
-			// one CONNECT tunnel. An explicit empty TLSNextProto map and HTTP/1.1
-			// ALPN force a brand-new TCP + CONNECT tunnel per attempt.
-			transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
-			if transport.TLSClientConfig == nil {
-				transport.TLSClientConfig = &tls.Config{NextProtos: []string{"http/1.1"}}
-			} else {
-				tlsCfg := transport.TLSClientConfig.Clone()
-				tlsCfg.NextProtos = []string{"http/1.1"}
-				transport.TLSClientConfig = tlsCfg
-			}
+		isTemplate := strings.Contains(clean, "{{session-id}}")
+		buildClean := clean
+		if isTemplate {
+			buildClean = strings.ReplaceAll(clean, "{{session-id}}", "0000000000000000")
 		}
-		transport.DialContext = (&net.Dialer{
-			Timeout:   time.Duration(cfg.ConnectTimeoutSeconds) * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext
-		var proxyURL *url.URL
-		if clean == "direct" {
-			transport.Proxy = nil
-		} else {
-			u, err := url.Parse(clean)
-			if err != nil {
-				return nil, fmt.Errorf("parse proxy %s: %w", config.RedactURL(raw), err)
-			}
-			transport.Proxy = http.ProxyURL(u)
-			proxyURL = u
-		}
-		bun, err := httpx.NewBunTransport(httpx.BunOptions{
-			Proxy:                 proxyURL,
-			ConnectTimeout:        time.Duration(cfg.ConnectTimeoutSeconds) * time.Second,
-			ResponseHeaderTimeout: responseHeaderTimeout,
-			IdleConnTimeout:       transport.IdleConnTimeout,
-			MaxIdleConnsPerHost:   cfg.MaxIdleConnsPerHost,
-			DisableKeepAlives:     isPool,
-		})
+		c, bun, err := buildSingleProxyClient(buildClean, isPool, cfg, responseHeaderTimeout)
 		if err != nil {
-			return nil, fmt.Errorf("proxy %s: %w", config.RedactURL(raw), err)
+			return nil, err
 		}
-		proxy := &proxyTransport{index: len(p.items), name: raw, pool: isPool, client: &http.Client{Transport: transport}, bun: &http.Client{Transport: bun}}
+		proxy := &proxyTransport{
+			index:         len(p.items),
+			name:          raw,
+			cleanURL:      clean,
+			pool:          isPool,
+			isTemplate:    isTemplate,
+			client:        c,
+			bun:           bun,
+			templateCache: make(map[string]*templateClientEntry),
+			perfCfg:       cfg,
+			respTimeout:   responseHeaderTimeout,
+		}
 		proxy.healthy.Store(true)
 		p.items = append(p.items, proxy)
 	}

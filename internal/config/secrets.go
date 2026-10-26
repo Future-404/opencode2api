@@ -27,7 +27,12 @@ func RedactURL(raw string) string {
 	if clean != "" {
 		raw = clean
 	}
-	u, err := url.Parse(raw)
+	hasTemplate := strings.Contains(raw, "{{session-id}}")
+	target := raw
+	if hasTemplate {
+		target = strings.ReplaceAll(raw, "{{session-id}}", "SESSION_ID_PLACEHOLDER")
+	}
+	u, err := url.Parse(target)
 	if err != nil {
 		return "<invalid>"
 	}
@@ -37,7 +42,11 @@ func RedactURL(raw string) string {
 	if pool && u.Fragment == "" {
 		u.Fragment = "pool"
 	}
-	return u.String()
+	res := u.String()
+	if hasTemplate {
+		res = strings.ReplaceAll(res, "SESSION_ID_PLACEHOLDER", "{{session-id}}")
+	}
+	return res
 }
 
 // Redactor scrubs configured secrets from text such as log lines and error

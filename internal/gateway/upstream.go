@@ -446,7 +446,7 @@ func (g *Gateway) doAnonymousUpstream(ctx context.Context, route models.Route, b
 			}
 			setRequestCredential(ctx, config.TierZen, "anonymous", "anonymous", true, node.proxy)
 			started := time.Now()
-			resp, err := doInferenceAttempt(g.inferenceClient(node.proxy, baseURL, route.ID), req, time.Duration(g.cfg.Performance.FirstEventTimeoutSeconds)*time.Second, g.attemptTimeout)
+			resp, err := doInferenceAttempt(g.inferenceClient(node.proxy, baseURL, route.ID, ids.Session), req, time.Duration(g.cfg.Performance.FirstEventTimeoutSeconds)*time.Second, g.attemptTimeout)
 			duration := time.Since(started)
 			if ctx.Err() != nil {
 				// The parent budget expired while this attempt was in flight. Its
@@ -573,12 +573,13 @@ func (g *Gateway) anonymousUpstreams() []string {
 // the Bun client (see httpx.BunTransport), whose TLS ClientHello and HTTP/1.1
 // header layout match the runtime of the official OpenCode clients; every
 // other request, including the Go tier (/zen/go), keeps the regular client.
-func (g *Gateway) inferenceClient(proxy *proxyTransport, baseURL, model string) *http.Client {
-	lane := strings.ToLower(strings.TrimRight(strings.TrimSpace(baseURL), "/"))
-	if g.catalog.IsFreeModel(model) && (models.IsV1Upstream(baseURL) || strings.HasSuffix(lane, "/inference")) {
-		return proxy.bun
+func (g *Gateway) inferenceClient(proxy *proxyTransport, baseURL, model string, session string) *http.Client {
+	if proxy == nil {
+		return nil
 	}
-	return proxy.client
+	lane := strings.ToLower(strings.TrimRight(strings.TrimSpace(baseURL), "/"))
+	isBun := g.catalog.IsFreeModel(model) && (models.IsV1Upstream(baseURL) || strings.HasSuffix(lane, "/inference"))
+	return proxy.ClientForSession(session, isBun)
 }
 
 // prepareAnonymousBody returns body normalized for the free tier alongside the
@@ -857,7 +858,7 @@ func (g *Gateway) doSelectedKeyUpstream(ctx context.Context, route models.Route,
 	if useWARP {
 		resp, egress, err = g.doWARPAttempt(ctx, req, baseURL, route.ID, time.Duration(g.cfg.Performance.FirstEventTimeoutSeconds)*time.Second)
 	} else {
-		resp, err = doInferenceAttempt(g.inferenceClient(proxy, baseURL, route.ID), req, time.Duration(g.cfg.Performance.FirstEventTimeoutSeconds)*time.Second, g.attemptTimeout)
+		resp, err = doInferenceAttempt(g.inferenceClient(proxy, baseURL, route.ID, ids.Session), req, time.Duration(g.cfg.Performance.FirstEventTimeoutSeconds)*time.Second, g.attemptTimeout)
 	}
 	duration := time.Since(started)
 	recordProxy := proxy
@@ -959,7 +960,7 @@ func (g *Gateway) doKeyUpstream(ctx context.Context, route models.Route, bodies 
 		if useWARP {
 			resp, egress, err = g.doWARPAttempt(ctx, req, baseURL, route.ID, time.Duration(g.cfg.Performance.FirstEventTimeoutSeconds)*time.Second)
 		} else {
-			resp, err = doInferenceAttempt(g.inferenceClient(proxy, baseURL, route.ID), req, time.Duration(g.cfg.Performance.FirstEventTimeoutSeconds)*time.Second, g.attemptTimeout)
+			resp, err = doInferenceAttempt(g.inferenceClient(proxy, baseURL, route.ID, ids.Session), req, time.Duration(g.cfg.Performance.FirstEventTimeoutSeconds)*time.Second, g.attemptTimeout)
 		}
 		attemptDuration := time.Since(attemptStarted)
 		if ctx.Err() != nil {

@@ -121,7 +121,7 @@ func (g *Gateway) probeFreeModel(ctx context.Context, model string) probeResult 
 					// Try the anonymous upstreams in preference order: the v2
 					// /inference origin before the v1 fallback.
 					for _, baseURL := range g.anonymousUpstreams() {
-						lanes = append(lanes, lane{key: anonymousZenKey, name: "anonymous", baseURL: baseURL, client: g.inferenceClient(node.proxy, baseURL, model)})
+						lanes = append(lanes, lane{key: anonymousZenKey, name: "anonymous", baseURL: baseURL, client: g.inferenceClient(node.proxy, baseURL, model, ids.Session)})
 					}
 				}
 			}
@@ -137,7 +137,7 @@ func (g *Gateway) probeFreeModel(ctx context.Context, model string) probeResult 
 		if g.usesWARP(model, config.TierZen, false) {
 			lanes = append(lanes, lane{key: node.key, name: "zen", baseURL: g.cfg.Upstream.Zen, warp: true})
 		} else if proxy := g.zenNodes.Proxy(node); proxy != nil {
-			lanes = append(lanes, lane{key: node.key, name: "zen", baseURL: g.cfg.Upstream.Zen, client: g.inferenceClient(proxy, g.cfg.Upstream.Zen, model)})
+			lanes = append(lanes, lane{key: node.key, name: "zen", baseURL: g.cfg.Upstream.Zen, client: g.inferenceClient(proxy, g.cfg.Upstream.Zen, model, ids.Session)})
 		}
 	}
 	result := probeResult{reason: "no_probe_channel"}
