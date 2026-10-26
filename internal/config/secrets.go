@@ -90,7 +90,11 @@ func (r *Redactor) Replace(cfg Config) {
 		if value != "direct" {
 			clean, _ := ParseProxyEntry(value)
 			values = append(values, value, clean)
-			if parsed, err := url.Parse(clean); err == nil && parsed.User != nil {
+			parseTarget := clean
+			if strings.Contains(clean, "{{session-id}}") {
+				parseTarget = strings.ReplaceAll(clean, "{{session-id}}", "SESSION_ID_PLACEHOLDER")
+			}
+			if parsed, err := url.Parse(parseTarget); err == nil && parsed.User != nil {
 				values = append(values, parsed.User.Username())
 				if password, ok := parsed.User.Password(); ok {
 					values = append(values, password)

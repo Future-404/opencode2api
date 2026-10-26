@@ -415,7 +415,11 @@ func Normalize(path string, cfg Config) (Config, error) {
 			continue
 		}
 		clean, _ := ParseProxyEntry(raw)
-		u, err := url.Parse(clean)
+		parseTarget := clean
+		if strings.Contains(clean, "{{session-id}}") {
+			parseTarget = strings.ReplaceAll(clean, "{{session-id}}", "SESSION_ID_PLACEHOLDER")
+		}
+		u, err := url.Parse(parseTarget)
 		if err != nil || u.Host == "" {
 			return Config{}, fmt.Errorf("invalid proxy URL %q", RedactURL(raw))
 		}
