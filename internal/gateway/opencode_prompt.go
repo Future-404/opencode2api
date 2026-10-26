@@ -80,14 +80,79 @@ func opencodeEnvironment(model string) string {
 	}, "\n")
 }
 
+// opencodeModelName returns the display name for a given model ID.
+func opencodeModelName(apiModel string) string {
+	switch apiModel {
+	case "deepseek-v4.1-flash-free":
+		return "DeepSeek V4.1 Flash Free"
+	case "glm-5.3-flash-free":
+		return "GLM 5.3 Flash Free"
+	case "mimo-v2.6-flash-free":
+		return "MIMO v2.6 Flash Free"
+	case "flint-40b-free":
+		return "Flint 40B Free"
+	case "beam-free":
+		return "Beam Free"
+	case "nemotron-3-ultra-free":
+		return "Nemotron 3 Ultra Free"
+	case "nemotron-3.5-lightning-free":
+		return "Nemotron 3.5 Lightning Free"
+	case "nemotron-3.5-super-vl-free":
+		return "Nemotron 3.5 Super VL Free"
+	default:
+		parts := strings.FieldsFunc(apiModel, func(r rune) bool {
+			return r == '-' || r == '_'
+		})
+		for i, p := range parts {
+			if len(p) > 0 {
+				parts[i] = strings.ToUpper(p[:1]) + p[1:]
+			}
+		}
+		return strings.Join(parts, " ")
+	}
+}
+
+func opencodeSystemPromptV2(model string) string {
+	apiModel := strings.TrimSpace(strings.TrimPrefix(model, "opencode/"))
+	if apiModel == "" {
+		apiModel = "deepseek-v4.1-flash-free"
+	}
+	modelName := opencodeModelName(apiModel)
+
+	opencodeEnvOnce.Do(func() {
+		directory := ""
+		if current, err := os.Getwd(); err == nil {
+			directory = filepath.Clean(strings.TrimSpace(current))
+		}
+		if directory == "" || directory == "." {
+			directory = "/workspace"
+		}
+		opencodeWorkDir = directory
+	})
+
+	platform := runtime.GOOS
+	if platform == "windows" {
+		platform = "win32"
+	}
+
+	dateStr := time.Now().UTC().Format("Mon Jan 02 2006")
+
+	prompt := opencodePromptV2
+	prompt = strings.ReplaceAll(prompt, "{{MODEL_NAME}}", modelName)
+	prompt = strings.ReplaceAll(prompt, "{{MODEL_ID}}", apiModel)
+	prompt = strings.ReplaceAll(prompt, "{{DATE}}", dateStr)
+	prompt = strings.ReplaceAll(prompt, "{{WORKDIR}}", opencodeWorkDir)
+	prompt = strings.ReplaceAll(prompt, "{{PLATFORM}}", platform)
+	return prompt
+}
+
 // opencodeSystemPrompt assembles the full CLI system prompt for model and the
 // upstream generation's tool naming.
 func opencodeSystemPrompt(model string, v1 bool) string {
-	base := opencodePromptV2
 	if v1 {
-		base = opencodePromptV1
+		return opencodePromptV1 + opencodeEnvironment(model) + "\n" + opencodeSkills
 	}
-	return base + opencodeEnvironment(model) + "\n" + opencodeSkills
+	return opencodeSystemPromptV2(model)
 }
 
 // injectOfficialPrompt prepends the official CLI system prompt to a shaped

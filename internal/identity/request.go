@@ -300,3 +300,12 @@ func RandomID(prefix string, size int) string {
 	}
 	return prefix + "_" + hex.EncodeToString(buf)
 }
+
+// RandomHex returns size random bytes encoded as hex string.
+func RandomHex(size int) string {
+	buf := make([]byte, size)
+	if _, err := rand.Read(buf); err != nil {
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	}
+	return hex.EncodeToString(buf)
+}
