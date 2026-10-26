@@ -80,36 +80,73 @@ func opencodeEnvironment(model string) string {
 	}, "\n")
 }
 
+var officialModelNames = map[string]string{
+	"beam-free":                       "Beam Free",
+	"big-pickle":                      "Big Pickle",
+	"cat-jam-free":                    "Cat Jam Free",
+	"deepseek-v4-flash":               "DeepSeek V4 Flash",
+	"deepseek-v4-flash-free":          "DeepSeek V4 Flash Free",
+	"deepseek-v4-flash-vision-exp":    "DeepSeek V4 Flash Vision Exp",
+	"deepseek-v4-pro":                 "DeepSeek V4 Pro",
+	"deepseek-v4.1-flash":             "DeepSeek V4.1 Flash",
+	"deepseek-v4.1-flash-free":        "DeepSeek V4.1 Flash Free",
+	"exo-free":                        "Exo Free",
+	"fledge-alpha-free":               "Fledge Alpha Free",
+	"flint-40b-free":                  "Flint 40B Free",
+	"glm-4.7-free":                    "GLM-4.7 Free",
+	"glm-5-free":                      "GLM-5 Free",
+	"glm-5.3-flash":                   "GLM-5.3-Flash",
+	"glm-5.3-flash-free":              "GLM-5.3-Flash Free",
+	"hy3-free":                        "Hy3 Free",
+	"hy3-preview-free":                "Hy3 preview Free",
+	"kimi-k2.5-free":                  "Kimi K2.5 Free",
+	"laguna-s-2.1-free":               "Laguna S 2.1 Free",
+	"ling-2.6-flash-free":             "Ling 2.6 Flash Free",
+	"ling-3.0-flash-fin-free":         "Ling 3.0 Flash Fin Free",
+	"ling-3.0-flash-free":             "Ling-3.0-flash Free",
+	"ling-3.0-tiny-free":              "Ling-3.0-tiny Free",
+	"ling-3.1-flash-free":             "Ling 3.1 Flash Free",
+	"ll-alpha-free":                   "LL Alpha Free",
+	"longcat-2.0-free":                "LongCat-2.0 Free",
+	"longcat-2.5-preview-free":        "LongCat 2.5 Preview Free",
+	"mimo-v2-flash-free":              "MiMo V2 Flash Free",
+	"mimo-v2-omni-free":               "MiMo V2 Omni Free",
+	"mimo-v2-pro-free":                "MiMo V2 Pro Free",
+	"mimo-v2.5-free":                  "MiMo V2.5 Free",
+	"mimo-v2.6-flash-free":            "MiMo-V2.6-Flash Free",
+	"minimax-m2.1-free":               "MiniMax-M2.1 Free",
+	"minimax-m2.5-free":               "MiniMax-M2.5 Free",
+	"minimax-m3-free":                 "MiniMax-M3 Free",
+	"minimax-m3.1-flash-free":         "MiniMax M3.1 Flash Free",
+	"muse-spark-1.2-contributor-free": "Muse Spark 1.2 Free",
+	"muse-spark-1.3-contributor-free": "Muse Spark 1.3 Free",
+	"nemotron-3-super-free":           "Nemotron 3 Super Free",
+	"nemotron-3-ultra-free":           "Nemotron 3 Ultra Free",
+	"nemotron-3.5-lightning-free":     "Nemotron 3.5 Lightning Free",
+	"nemotron-3.5-super-vl-free":      "Nemotron 3.5 Super VL Free",
+	"north-mini-code-free":            "North Mini Code Free",
+	"qwen3.6-plus-free":               "Qwen3.6 Plus Free",
+	"ring-2.6-1t-free":                "Ring 2.6 1T Free",
+	"space-bunny-free":                "Space Bunny Free",
+	"step-5-preview-free":             "Step 5 Preview Free",
+	"trinity-large-preview-free":      "Trinity Large Preview",
+	"x-preview-f-free":                "Ox Alpha Free (Unlimited)",
+}
+
 // opencodeModelName returns the display name for a given model ID.
 func opencodeModelName(apiModel string) string {
-	switch apiModel {
-	case "deepseek-v4.1-flash-free":
-		return "DeepSeek V4.1 Flash Free"
-	case "glm-5.3-flash-free":
-		return "GLM 5.3 Flash Free"
-	case "mimo-v2.6-flash-free":
-		return "MIMO v2.6 Flash Free"
-	case "flint-40b-free":
-		return "Flint 40B Free"
-	case "beam-free":
-		return "Beam Free"
-	case "nemotron-3-ultra-free":
-		return "Nemotron 3 Ultra Free"
-	case "nemotron-3.5-lightning-free":
-		return "Nemotron 3.5 Lightning Free"
-	case "nemotron-3.5-super-vl-free":
-		return "Nemotron 3.5 Super VL Free"
-	default:
-		parts := strings.FieldsFunc(apiModel, func(r rune) bool {
-			return r == '-' || r == '_'
-		})
-		for i, p := range parts {
-			if len(p) > 0 {
-				parts[i] = strings.ToUpper(p[:1]) + p[1:]
-			}
-		}
-		return strings.Join(parts, " ")
+	if name, ok := officialModelNames[apiModel]; ok {
+		return name
 	}
+	parts := strings.FieldsFunc(apiModel, func(r rune) bool {
+		return r == '-' || r == '_'
+	})
+	for i, p := range parts {
+		if len(p) > 0 {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func opencodeSystemPromptV2(model string) string {
