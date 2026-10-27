@@ -71,3 +71,52 @@ func TestSessionRouter_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestSessionRouter_AutomatedEviction(t *testing.T) {
+	sr := NewSessionRouter(50 * time.Millisecond)
+
+	// Pre-populate with 1050 expired entries
+	oldTime := time.Now().Add(-100 * time.Millisecond)
+	sr.mu.Lock()
+	for i := 0; i < 1050; i++ {
+		sr.entries[string(rune(i))] = sessionEntry{
+			session:   "ses_expired",
+			updatedAt: oldTime,
+		}
+	}
+	sr.mu.Unlock()
+
+	if sr.Len() != 1050 {
+		t.Fatalf("expected 1050 entries, got %d", sr.Len())
+	}
+
+	// Calling GetOrSet triggers automated eviction because len >= 1000
+	s := sr.GetOrSet("conv_fresh", "ses_fresh")
+	if s != "ses_fresh" {
+		t.Fatalf("expected ses_fresh, got %s", s)
+	}
+
+	// Expired entries should be purged, leaving only conv_fresh
+	if sr.Len() != 1 {
+		t.Fatalf("expected 1 entry after automated eviction, got %d", sr.Len())
+	}
+
+	// Test explicit PurgeExpired
+	sr.mu.Lock()
+	sr.entries["conv_exp1"] = sessionEntry{session: "ses_exp", updatedAt: time.Now().Add(-100 * time.Millisecond)}
+	sr.entries["conv_exp2"] = sessionEntry{session: "ses_exp", updatedAt: time.Now().Add(-100 * time.Millisecond)}
+	sr.mu.Unlock()
+
+	if sr.Len() != 3 {
+		t.Fatalf("expected 3 entries, got %d", sr.Len())
+	}
+
+	purged := sr.PurgeExpired()
+	if purged != 2 {
+		t.Fatalf("expected 2 purged, got %d", purged)
+	}
+	if sr.Len() != 1 {
+		t.Fatalf("expected 1 entry left, got %d", sr.Len())
+	}
+}
+

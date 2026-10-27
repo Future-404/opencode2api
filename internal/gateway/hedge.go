@@ -24,11 +24,20 @@ const (
 
 // hedgedAttemptResult holds the outcome of an individual speculative branch.
 type hedgedAttemptResult struct {
-	resp       *http.Response
-	session    string
-	attemptNum int
-	err        error
-	legs       []string
+	resp        *http.Response
+	session     string
+	attemptNum  int
+	err         error
+	legs        []string
+	shaped      bool
+	toolRenames *wire.ToolRenames
+	channel     string
+	proxy       string
+	keyID       string
+	tier        string
+	anonymous   bool
+	halted      bool
+	blocked     bool
 }
 
 // hedgedAttemptFunc is the attempt-dispatch abstraction executed by each hedged branch.
@@ -98,6 +107,13 @@ func executeHedgedPipeline(
 
 	if maxCandidates <= 1 {
 		resp, err := attempt(ctx, 0, initialSession)
+		if resp != nil {
+			if isDeterministicClientResponse(resp.StatusCode, peekResponseBody(resp)) && err == nil {
+				err = errDeterministicClientRejection
+			} else if peekNetworkAbuseBlock(resp) && err == nil {
+				err = errFreeTierIPBlocked
+			}
+		}
 		return resp, initialSession, err, 1
 	}
 
@@ -128,16 +144,57 @@ func executeHedgedPipeline(
 			}()
 			resp, err := attempt(branchCtx, idx, session)
 			var legs []string
-			if bMeta := telemetry.MetaFromContext(branchCtx); bMeta != nil && len(bMeta.Legs) > 0 {
-				legs = append([]string(nil), bMeta.Legs...)
+			var bMeta *telemetry.RequestMeta
+			if meta := telemetry.MetaFromContext(branchCtx); meta != nil {
+				bMeta = meta
+				if len(meta.Legs) > 0 {
+					legs = append([]string(nil), meta.Legs...)
+				}
 			}
-			resultCh <- hedgedAttemptResult{
-				resp:       resp,
-				session:    session,
-				attemptNum: idx,
-				err:        err,
-				legs:       legs,
+			shape := requestShapeFrom(branchCtx)
+			var halted, blocked bool
+			if resp != nil {
+				if isDeterministicClientResponse(resp.StatusCode, peekResponseBody(resp)) {
+					halted = true
+					if err == nil {
+						err = errDeterministicClientRejection
+					}
+				}
+				if peekNetworkAbuseBlock(resp) {
+					blocked = true
+					if err == nil {
+						err = errFreeTierIPBlocked
+					}
+				}
 			}
+			if errors.Is(err, errDeterministicClientRejection) {
+				halted = true
+			}
+			if errors.Is(err, errFreeTierIPBlocked) {
+				blocked = true
+			}
+			res := hedgedAttemptResult{
+				resp:        resp,
+				session:     session,
+				attemptNum:  idx,
+				err:         err,
+				legs:        legs,
+				shaped:      shape.shaped,
+				toolRenames: shape.renames,
+				halted:      halted,
+				blocked:     blocked,
+			}
+			if bMeta != nil {
+				res.channel = bMeta.Channel
+				res.proxy = bMeta.Proxy
+				res.keyID = bMeta.KeyID
+				res.tier = bMeta.Tier
+				res.anonymous = bMeta.Anonymous
+				if bMeta.Session != "" {
+					res.session = bMeta.Session
+				}
+			}
+			resultCh <- res
 		}()
 	}
 
@@ -150,6 +207,7 @@ func executeHedgedPipeline(
 	hedgeTimer := time.NewTimer(delay)
 	defer hedgeTimer.Stop()
 
+	var anyBlocked bool
 	var lastFailure hedgedAttemptResult
 
 	for {
@@ -197,6 +255,61 @@ func executeHedgedPipeline(
 				parentMeta.Legs = append(parentMeta.Legs, res.legs...)
 			}
 
+			if res.blocked {
+				anyBlocked = true
+			}
+
+			// Deterministic client rejection (e.g. 400 context length exceeded):
+			// Stop hedging immediately and return response without waiting for pipeline retries.
+			if res.halted {
+				if !hedgeTimer.Stop() {
+					select {
+					case <-hedgeTimer.C:
+					default:
+					}
+				}
+				for i, cancel := range branchCancels {
+					if i != res.attemptNum {
+						cancel()
+					}
+				}
+				if lastFailure.resp != nil && lastFailure.resp.Body != nil {
+					httpx.DrainAndClose(lastFailure.resp.Body)
+					lastFailure.resp = nil
+				}
+				if res.resp != nil && res.resp.Body != nil {
+					res.resp.Body = &cancelOnCloseBody{
+						ReadCloser: res.resp.Body,
+						cancel:     branchCancels[res.attemptNum],
+					}
+				}
+				remaining := dispatched - resultsRead
+				if remaining > 0 {
+					go func(count int) {
+						for i := 0; i < count; i++ {
+							r := <-resultCh
+							if r.resp != nil && r.resp.Body != nil {
+								httpx.DrainAndClose(r.resp.Body)
+							}
+						}
+					}(remaining)
+				}
+				setRequestShape(ctx, res.shaped, res.toolRenames)
+				if meta := telemetry.MetaFromContext(ctx); meta != nil {
+					meta.Channel = res.channel
+					meta.Proxy = res.proxy
+					meta.KeyID = res.keyID
+					meta.Tier = res.tier
+					meta.Anonymous = res.anonymous
+					meta.Session = res.session
+				}
+				retErr := res.err
+				if retErr == nil {
+					retErr = errDeterministicClientRejection
+				}
+				return res.resp, res.session, retErr, dispatched
+			}
+
 			// First-Byte Winner Takes All
 			if isHedgeWinner(res.resp, res.err) {
 				if !hedgeTimer.Stop() {
@@ -235,6 +348,15 @@ func executeHedgedPipeline(
 						}
 					}(remaining)
 				}
+				setRequestShape(ctx, res.shaped, res.toolRenames)
+				if meta := telemetry.MetaFromContext(ctx); meta != nil {
+					meta.Channel = res.channel
+					meta.Proxy = res.proxy
+					meta.KeyID = res.keyID
+					meta.Tier = res.tier
+					meta.Anonymous = res.anonymous
+					meta.Session = res.session
+				}
 				return res.resp, res.session, nil, dispatched
 			}
 
@@ -264,6 +386,9 @@ func executeHedgedPipeline(
 				}
 			} else if active == 0 {
 				// All candidates dispatched and all have finished (failed)
+				if anyBlocked {
+					return lastFailure.resp, lastFailure.session, errFreeTierIPBlocked, dispatched
+				}
 				return lastFailure.resp, lastFailure.session, lastFailure.err, dispatched
 			}
 		}
@@ -394,8 +519,12 @@ func (g *Gateway) doSingleAnonymousAttempt(
 			}
 		} else if peekNetworkAbuseBlock(resp) {
 			node.proxy.markBlocked(time.Now().Add(g.freeTierBlockTTL()))
+			lastErr = errFreeTierIPBlocked
+			g.logger.Warn("free tier blocked the egress IP; cooling the exit", "component", "upstream", "event", "free_tier_ip_blocked", "request_id", ids.Request, "attempt", attemptOffset+attemptNum+1, "tier", config.TierZen, "upstream", config.RedactURL(baseURL), "proxy", config.RedactURL(node.proxy.name), "block_for", g.freeTierBlockTTL().String())
 			break
 		} else if isDeterministicClientResponse(resp.StatusCode, peekResponseBody(resp)) {
+			lastErr = errDeterministicClientRejection
+			g.logger.Warn("upstream rejected the request; not trying other upstreams", "component", "upstream", "event", "deterministic_rejection", "request_id", ids.Request, "attempt", attemptOffset+attemptNum+1, "tier", config.TierZen, "upstream", config.RedactURL(baseURL), "status", resp.StatusCode, "duration_ms", duration.Milliseconds())
 			break
 		} else if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
 			// IP rate-limit is exit-specific. Skip remaining upstreams on this exit.

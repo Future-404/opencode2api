@@ -16,6 +16,7 @@ import (
 	"opencode2api/internal/httpx"
 	"opencode2api/internal/identity"
 	"opencode2api/internal/models"
+	wire "opencode2api/internal/protocol"
 	"opencode2api/internal/telemetry"
 )
 
@@ -461,6 +462,16 @@ func TestHedgedPipeline_ContextIsolationAndLegs(t *testing.T) {
 		}
 
 		bMeta.Legs = append(bMeta.Legs, "anon:200:15ms")
+		bMeta.Channel = "hedged#1"
+		bMeta.Proxy = "proxy.winner"
+		bMeta.KeyID = "key.winner"
+		bMeta.Tier = "zen"
+		bMeta.Anonymous = true
+		bMeta.Session = "ses_winner"
+		renames := wire.NewToolRenames()
+		renames.Add("client_name", "wire_name")
+		setRequestShape(ctx, true, renames)
+
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       io.NopCloser(bytes.NewReader([]byte("200"))),
@@ -483,6 +494,114 @@ func TestHedgedPipeline_ContextIsolationAndLegs(t *testing.T) {
 	}
 	if parentMeta.Legs[0] != "anon:429:10ms" || parentMeta.Legs[1] != "anon:200:15ms" {
 		t.Fatalf("unexpected parent legs: %v", parentMeta.Legs)
+	}
+
+	// Verify winning telemetry fields propagated to parent
+	if parentMeta.Channel != "hedged#1" {
+		t.Fatalf("expected parent Channel 'hedged#1', got %s", parentMeta.Channel)
+	}
+	if parentMeta.Proxy != "proxy.winner" {
+		t.Fatalf("expected parent Proxy 'proxy.winner', got %s", parentMeta.Proxy)
+	}
+	if parentMeta.KeyID != "key.winner" {
+		t.Fatalf("expected parent KeyID 'key.winner', got %s", parentMeta.KeyID)
+	}
+	if parentMeta.Tier != "zen" {
+		t.Fatalf("expected parent Tier 'zen', got %s", parentMeta.Tier)
+	}
+	if !parentMeta.Anonymous {
+		t.Fatalf("expected parent Anonymous true")
+	}
+	if parentMeta.Session != "ses_winner" {
+		t.Fatalf("expected parent Session 'ses_winner', got %s", parentMeta.Session)
+	}
+	if parentMeta.ToolRenames != 1 {
+		t.Fatalf("expected parent ToolRenames 1, got %d", parentMeta.ToolRenames)
+	}
+
+	// Verify requestShape propagated to parent context
+	shape := requestShapeFrom(parentCtx)
+	if !shape.shaped {
+		t.Fatalf("expected parent shape.shaped to be true")
+	}
+	if shape.renames == nil || shape.renames.Count() != 1 {
+		t.Fatalf("expected parent toolRenames to be preserved, got %v", shape.renames)
+	}
+}
+
+func TestHedgedPipeline_DeterministicErrorShortCircuit(t *testing.T) {
+	var calls int32
+	cfg := config.HedgeConfig{
+		Enabled:       true,
+		DelayMs:       100,
+		IntervalMs:    50,
+		MaxCandidates: 4,
+	}
+
+	attemptFn := func(ctx context.Context, attemptNum int, session string) (*http.Response, error) {
+		atomic.AddInt32(&calls, 1)
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Body:       io.NopCloser(bytes.NewReader([]byte(`{"error":{"code":"invalid_request_error","message":"context_length_exceeded"}}`))),
+		}, nil
+	}
+
+	resp, _, err, attempts := executeHedgedPipeline(context.Background(), cfg, "ses_short_circuit", attemptFn)
+	if resp == nil {
+		t.Fatalf("expected non-nil response")
+	}
+	defer resp.Body.Close()
+
+	if !errors.Is(err, errDeterministicClientRejection) {
+		t.Fatalf("expected errDeterministicClientRejection, got %v", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("expected 1 attempt, got %d", attempts)
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("expected exactly 1 call dispatched, got %d", atomic.LoadInt32(&calls))
+	}
+}
+
+func TestHedgedPipeline_StickyAnyBlocked(t *testing.T) {
+	var calls int32
+	cfg := config.HedgeConfig{
+		Enabled:       true,
+		DelayMs:       20,
+		IntervalMs:    10,
+		MaxCandidates: 3,
+	}
+
+	attemptFn := func(ctx context.Context, attemptNum int, session string) (*http.Response, error) {
+		idx := atomic.AddInt32(&calls, 1)
+		if idx == 1 {
+			return &http.Response{
+				StatusCode: http.StatusForbidden,
+				Body:       io.NopCloser(bytes.NewReader([]byte(`Forbidden, OpenCode Free Model Gateway Detect Abuse Traffic`))),
+			}, nil
+		}
+		if idx == 2 {
+			return &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Body:       io.NopCloser(bytes.NewReader([]byte(`429 rate limit`))),
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Body:       io.NopCloser(bytes.NewReader([]byte(`502 bad gateway`))),
+		}, nil
+	}
+
+	resp, _, err, attempts := executeHedgedPipeline(context.Background(), cfg, "ses_sticky_abuse", attemptFn)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+
+	if !errors.Is(err, errFreeTierIPBlocked) {
+		t.Fatalf("expected errFreeTierIPBlocked, got %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
 	}
 }
 

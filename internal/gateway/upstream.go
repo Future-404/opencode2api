@@ -375,8 +375,14 @@ func (g *Gateway) doAnonymousUpstream(ctx context.Context, route models.Route, b
 			}
 			return resp, nil, attempts
 		}
+		if errors.Is(err, errDeterministicClientRejection) {
+			return resp, errDeterministicClientRejection, attempts
+		}
 		if g.sessionRouter != nil {
 			g.sessionRouter.Invalidate(conversationKey, activeSession)
+		}
+		if errors.Is(err, errFreeTierIPBlocked) {
+			return resp, errFreeTierIPBlocked, attempts
 		}
 		if resp != nil {
 			if isDeterministicClientResponse(resp.StatusCode, peekResponseBody(resp)) {

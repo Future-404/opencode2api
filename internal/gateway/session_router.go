@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const defaultSessionRouterMaxEntries = 1000
+
 type sessionEntry struct {
 	session   string
 	updatedAt time.Time
@@ -29,6 +31,37 @@ func NewSessionRouter(ttl time.Duration) *SessionRouter {
 	}
 }
 
+func (sr *SessionRouter) cleanupExpiredLocked(now time.Time) int {
+	var purged int
+	for k, entry := range sr.entries {
+		if now.Sub(entry.updatedAt) >= sr.ttl {
+			delete(sr.entries, k)
+			purged++
+		}
+	}
+	return purged
+}
+
+// PurgeExpired evicts entries whose TTL has elapsed and returns the number of purged entries.
+func (sr *SessionRouter) PurgeExpired() int {
+	if sr == nil {
+		return 0
+	}
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+	return sr.cleanupExpiredLocked(time.Now())
+}
+
+// Len returns the current count of tracked sessions.
+func (sr *SessionRouter) Len() int {
+	if sr == nil {
+		return 0
+	}
+	sr.mu.RLock()
+	defer sr.mu.RUnlock()
+	return len(sr.entries)
+}
+
 func (sr *SessionRouter) GetOrSet(convKey, defaultSession string) string {
 	if sr == nil || convKey == "" {
 		return defaultSession
@@ -37,6 +70,10 @@ func (sr *SessionRouter) GetOrSet(convKey, defaultSession string) string {
 	defer sr.mu.Unlock()
 
 	now := time.Now()
+	if len(sr.entries) >= defaultSessionRouterMaxEntries {
+		sr.cleanupExpiredLocked(now)
+	}
+
 	if entry, exists := sr.entries[convKey]; exists {
 		if now.Sub(entry.updatedAt) < sr.ttl {
 			entry.updatedAt = now
@@ -57,9 +94,15 @@ func (sr *SessionRouter) Promote(convKey, winningSession string) {
 	}
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
+
+	now := time.Now()
+	if len(sr.entries) >= defaultSessionRouterMaxEntries {
+		sr.cleanupExpiredLocked(now)
+	}
+
 	sr.entries[convKey] = sessionEntry{
 		session:   winningSession,
-		updatedAt: time.Now(),
+		updatedAt: now,
 	}
 }
 
@@ -73,3 +116,4 @@ func (sr *SessionRouter) Invalidate(convKey, badSession string) {
 		delete(sr.entries, convKey)
 	}
 }
+
