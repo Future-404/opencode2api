@@ -44,8 +44,17 @@ type Config struct {
 	WebUI             WebUIConfig                  `json:"webui"`
 	Prefer            Tier                         `json:"prefer"`
 	Reasoning         ReasoningConfig              `json:"reasoning"`
+	Hedge             HedgeConfig                  `json:"hedge"`
 
 	effectiveProxies []string
+}
+
+// HedgeConfig controls hedged speculative concurrency for anonymous free tier exits.
+type HedgeConfig struct {
+	Enabled       bool `json:"enabled"`
+	DelayMs       int  `json:"delay_ms"`
+	IntervalMs    int  `json:"interval_ms"`
+	MaxCandidates int  `json:"max_candidates"`
 }
 
 // ReasoningConfig forces a thinking level for requests that do not state one.
@@ -276,6 +285,27 @@ func (cfg PerformanceConfig) AttemptTimeout(requestTimeout time.Duration) time.D
 	return requestTimeout
 }
 
+// DefaultConfig returns a Config initialized with built-in default values.
+func DefaultConfig() Config {
+	return Config{
+		Listen:      "127.0.0.1:8080",
+		Warp:        WarpConfig{PoolSize: 2, Stack: string(warp.DefaultStack)},
+		Upstream:    UpstreamConfig{Zen: "https://opencode.ai/zen", Go: "https://opencode.ai/zen/go", Anonymous: "https://opencode.ai/inference"},
+		Retry:       RetryConfig{MaxAttempts: 3, TimeoutSeconds: 300},
+		Models:      ModelsConfig{RefreshSeconds: 300, Protocols: map[string]string{}},
+		Performance: PerformanceConfig{MaxIdleConns: 2048, MaxIdleConnsPerHost: 256, MaxConnsPerHost: 0, IdleConnTimeoutSeconds: 120, ConnectTimeoutSeconds: 5, FailureCooldownSeconds: 15},
+		Logging:     LoggingConfig{Level: "info", RingSize: 2000},
+		WebUI:       WebUIConfig{Listen: "0.0.0.0:8081", SessionTTLMinutes: 720},
+		Prefer:      TierGo,
+		Hedge: HedgeConfig{
+			Enabled:       true,
+			DelayMs:       650,
+			IntervalMs:    120,
+			MaxCandidates: 5,
+		},
+	}
+}
+
 // Load reads the config file at path, strips its // and /* */ comments, and
 // decodes it over the built-in defaults. Decoding is strict: unknown fields
 // and anything after the first JSON value are errors. The result is then
@@ -289,17 +319,7 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("parse %s: %w", path, err)
 	}
-	cfg := Config{
-		Listen:      "127.0.0.1:8080",
-		Warp:        WarpConfig{PoolSize: 2, Stack: string(warp.DefaultStack)},
-		Upstream:    UpstreamConfig{Zen: "https://opencode.ai/zen", Go: "https://opencode.ai/zen/go", Anonymous: "https://opencode.ai/inference"},
-		Retry:       RetryConfig{MaxAttempts: 3, TimeoutSeconds: 300},
-		Models:      ModelsConfig{RefreshSeconds: 300, Protocols: map[string]string{}},
-		Performance: PerformanceConfig{MaxIdleConns: 2048, MaxIdleConnsPerHost: 256, MaxConnsPerHost: 0, IdleConnTimeoutSeconds: 120, ConnectTimeoutSeconds: 5, FailureCooldownSeconds: 15},
-		Logging:     LoggingConfig{Level: "info", RingSize: 2000},
-		WebUI:       WebUIConfig{Listen: "0.0.0.0:8081", SessionTTLMinutes: 720},
-		Prefer:      TierGo,
-	}
+	cfg := DefaultConfig()
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&cfg); err != nil {
@@ -439,6 +459,15 @@ func Normalize(path string, cfg Config) (Config, error) {
 	}
 	if err := normalizeReasoning(&cfg); err != nil {
 		return Config{}, err
+	}
+	if cfg.Hedge.DelayMs < 0 {
+		return Config{}, errors.New("hedge.delay_ms must not be negative")
+	}
+	if cfg.Hedge.IntervalMs < 0 {
+		return Config{}, errors.New("hedge.interval_ms must not be negative")
+	}
+	if cfg.Hedge.MaxCandidates < 0 {
+		return Config{}, errors.New("hedge.max_candidates must not be negative")
 	}
 	return cfg, nil
 }
