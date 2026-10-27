@@ -360,7 +360,11 @@ func (g *Gateway) doSingleAnonymousAttempt(
 			req.Close = true
 		}
 
-		setRequestCredential(ctx, config.TierZen, "anonymous", "anonymous", true, node.proxy)
+		channel := "anonymous"
+		if attemptNum > 0 {
+			channel = fmt.Sprintf("hedged#%d", attemptNum)
+		}
+		setRequestCredential(ctx, config.TierZen, "anonymous", channel, true, node.proxy)
 		started := time.Now()
 		resp, err := doInferenceAttempt(g.inferenceClient(node.proxy, baseURL, route.ID, session), req, time.Duration(g.cfg.Performance.FirstEventTimeoutSeconds)*time.Second, g.attemptTimeout)
 		duration := time.Since(started)
@@ -372,11 +376,11 @@ func (g *Gateway) doSingleAnonymousAttempt(
 			return nil, ctx.Err()
 		}
 
-		g.recordUpstreamAttempt(ctx, route, ids, attemptOffset+attemptNum+1, "anonymous", "anonymous", true, node.proxy, resp, err, duration)
+		g.recordUpstreamAttempt(ctx, route, ids, attemptOffset+attemptNum+1, "anonymous", channel, true, node.proxy, resp, err, duration)
 
 		if err == nil && resp.StatusCode/100 == 2 {
 			g.observeAnonymousResult(ctx, node, resp, nil)
-			g.logger.Debug("anonymous upstream accepted request", "component", "upstream", "event", "anonymous_attempt_succeeded", "request_id", ids.Request, "attempt", attemptOffset+attemptNum+1, "tier", config.TierZen, "upstream", config.RedactURL(baseURL), "key_id", "anonymous", "channel", "anonymous", "anonymous", true, "proxy", config.RedactURL(node.proxy.name), "status", resp.StatusCode, "duration_ms", duration.Milliseconds())
+			g.logger.Debug("anonymous upstream accepted request", "component", "upstream", "event", "anonymous_attempt_succeeded", "request_id", ids.Request, "attempt", attemptOffset+attemptNum+1, "tier", config.TierZen, "upstream", config.RedactURL(baseURL), "key_id", "anonymous", "channel", channel, "anonymous", true, "proxy", config.RedactURL(node.proxy.name), "status", resp.StatusCode, "duration_ms", duration.Milliseconds())
 			return resp, nil
 		}
 

@@ -84,6 +84,9 @@ type Gateway struct {
 	catalog      *models.ModelCatalog
 	monitor      *telemetry.Metrics
 	availability *models.AvailabilityRegistry
+	// sessionRouter maps client conversation keys to active healthy upstream
+	// sessions, promoting winners and keeping sticky proxy affinities.
+	sessionRouter *SessionRouter
 	// attemptTimeout bounds a whole upstream attempt (dial + write + headers
 	// and, when the first-event wait is enabled, the first event), not just
 	// the header wait. Zero arms no per-attempt deadline: each attempt is then
@@ -132,6 +135,7 @@ func New(cfg config.Config, logger *slog.Logger, monitor *telemetry.Metrics, war
 		warp:           warpPool,
 		catalog:        catalog,
 		monitor:        monitor,
+		sessionRouter:  NewSessionRouter(30 * time.Minute),
 		attemptTimeout: attemptDeadline(cfg),
 		freeTierBlock:  time.Duration(cfg.Performance.FreeTierBlockSeconds) * time.Second,
 	}, nil

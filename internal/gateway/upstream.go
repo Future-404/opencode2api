@@ -358,6 +358,38 @@ func (g *Gateway) doAnonymousUpstream(ctx context.Context, route models.Route, b
 	if g.usesWARP(route.ID, config.TierZen, true) {
 		return g.doWarpAnonymousUpstream(ctx, route, bodies, ids, attemptOffset)
 	}
+
+	conversationKey := ids.Session
+	activeSession := ids.Session
+	if g.sessionRouter != nil {
+		activeSession = g.sessionRouter.GetOrSet(conversationKey, ids.Session)
+	}
+	ids.Session = activeSession
+	ids.ChildSession = activeSession
+
+	if g.cfg.Hedge.Enabled {
+		resp, winnerSession, err, attempts := g.executeHedgedAnonymousPipeline(ctx, route, bodies, ids, attemptOffset)
+		if isHedgeWinner(resp, err) {
+			if g.sessionRouter != nil {
+				g.sessionRouter.Promote(conversationKey, winnerSession)
+			}
+			return resp, nil, attempts
+		}
+		if g.sessionRouter != nil {
+			g.sessionRouter.Invalidate(conversationKey, activeSession)
+		}
+		if resp != nil {
+			if isDeterministicClientResponse(resp.StatusCode, peekResponseBody(resp)) {
+				return resp, errDeterministicClientRejection, attempts
+			}
+			if peekNetworkAbuseBlock(resp) {
+				return resp, errFreeTierIPBlocked, attempts
+			}
+			return resp, nil, attempts
+		}
+		return nil, err, attempts
+	}
+
 	// The breaker holds the lane shut for an hour-scale window after repeated
 	// failures: poking a flagged upstream again would only extend the block.
 	if !g.anonymous.AllowAttempt() {
@@ -463,6 +495,9 @@ func (g *Gateway) doAnonymousUpstream(ctx context.Context, route models.Route, b
 			if err == nil && resp.StatusCode/100 == 2 {
 				g.observeAnonymousResult(ctx, node, resp, nil)
 				g.logger.Debug("anonymous upstream accepted request", "component", "upstream", "event", "anonymous_attempt_succeeded", "request_id", ids.Request, "attempt", attempts, "tier", config.TierZen, "upstream", config.RedactURL(baseURL), "key_id", "anonymous", "channel", "anonymous", "anonymous", true, "proxy", config.RedactURL(node.proxy.name), "status", resp.StatusCode, "duration_ms", duration.Milliseconds())
+				if g.sessionRouter != nil {
+					g.sessionRouter.Promote(conversationKey, ids.Session)
+				}
 				return resp, nil, attempts
 			}
 			lastResponse = resp
@@ -543,12 +578,24 @@ func (g *Gateway) doAnonymousUpstream(ctx context.Context, route models.Route, b
 			return lastResponse, errDeterministicClientRejection, attempts
 		}
 		if blocked {
+			if g.sessionRouter != nil {
+				g.sessionRouter.Invalidate(conversationKey, activeSession)
+			}
 			return lastResponse, errFreeTierIPBlocked, attempts
+		}
+		if g.sessionRouter != nil && lastResponse.StatusCode >= 400 {
+			g.sessionRouter.Invalidate(conversationKey, activeSession)
 		}
 		return lastResponse, nil, attempts
 	}
 	if blocked {
+		if g.sessionRouter != nil {
+			g.sessionRouter.Invalidate(conversationKey, activeSession)
+		}
 		return nil, errFreeTierIPBlocked, attempts
+	}
+	if g.sessionRouter != nil {
+		g.sessionRouter.Invalidate(conversationKey, activeSession)
 	}
 	if lastErr == nil {
 		lastErr = errors.New("no healthy anonymous proxies available")
@@ -1129,6 +1176,9 @@ func (g *Gateway) recordUpstreamAttempt(ctx context.Context, route models.Route,
 		label := keyID
 		if anonymous {
 			label = "anon"
+			if channel != "" && channel != "anonymous" {
+				label += ":" + channel
+			}
 		}
 		leg := label + ":"
 		if err != nil {

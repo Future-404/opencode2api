@@ -30,7 +30,7 @@ func NewSessionRouter(ttl time.Duration) *SessionRouter {
 }
 
 func (sr *SessionRouter) GetOrSet(convKey, defaultSession string) string {
-	if convKey == "" {
+	if sr == nil || convKey == "" {
 		return defaultSession
 	}
 	sr.mu.Lock()
@@ -52,7 +52,7 @@ func (sr *SessionRouter) GetOrSet(convKey, defaultSession string) string {
 }
 
 func (sr *SessionRouter) Promote(convKey, winningSession string) {
-	if convKey == "" || winningSession == "" {
+	if sr == nil || convKey == "" || winningSession == "" {
 		return
 	}
 	sr.mu.Lock()
@@ -64,7 +64,7 @@ func (sr *SessionRouter) Promote(convKey, winningSession string) {
 }
 
 func (sr *SessionRouter) Invalidate(convKey, badSession string) {
-	if convKey == "" {
+	if sr == nil || convKey == "" {
 		return
 	}
 	sr.mu.Lock()
