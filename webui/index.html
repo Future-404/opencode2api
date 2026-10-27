@@ -805,8 +805,11 @@
                     <div class="field full">
                       <label class="check">
                         <input id="c-anonymous" type="checkbox" />
-                        <span data-i18n="config.secrets.anonymous">启用 Zen 匿名通道</span>
+                        <span data-i18n="config.secrets.anonymous">启用匿名免费通道 (v2 Inference)</span>
                       </label>
+                      <p class="section-caption" data-i18n="config.secrets.anonymous.hint">
+                        无需配置上游 Key 即可使用官方免费模型（通过 v2 /inference 接口）。
+                      </p>
                     </div>
                     <div class="field full">
                       <label for="server_keys-new">Server Keys</label>
@@ -923,11 +926,21 @@
                     </div>
                     <div class="field">
                       <label for="c-up-zen">Zen URL</label>
-                      <input id="c-up-zen" />
+                      <input id="c-up-zen" placeholder="https://opencode.ai/zen" />
+                      <p class="section-caption" data-i18n="config.upstream.zen.hint">
+                        仅用于传统 Zen 付费 Key 通道（v1 协议）。
+                      </p>
                     </div>
                     <div class="field">
                       <label for="c-up-go">Go URL</label>
-                      <input id="c-up-go" />
+                      <input id="c-up-go" placeholder="https://opencode.ai/zen/go" />
+                    </div>
+                    <div class="field">
+                      <label for="c-up-anon">Anonymous URL</label>
+                      <input id="c-up-anon" placeholder="https://opencode.ai/inference" />
+                      <p class="section-caption" data-i18n="config.upstream.anon.hint">
+                        OpenCode v2 免费免 Key 推理通道；留空默认为 https://opencode.ai/inference。
+                      </p>
                     </div>
                     <div class="field">
                       <label for="c-attempts" data-i18n="config.upstream.attempts">每个 Key Tier 最大尝试次数</label>
@@ -952,6 +965,30 @@
                           仅暴露免费模型（即使配置了 Zen / Go Key）
                         </span>
                       </label>
+                    </div>
+                  </div>
+                </section>
+                <section class="section">
+                  <div class="section-head">
+                    <div>
+                      <h2 class="section-title" data-i18n="config.upstream.backoff.title">匿名免费通道熔断 (Circuit Breaker)</h2>
+                      <p class="section-caption" data-i18n="config.upstream.backoff.caption">
+                        当连续上游失败达到阈值时自动熔断匿名通道并按指数退避冷却。
+                      </p>
+                    </div>
+                  </div>
+                  <div class="form-grid">
+                    <div class="field">
+                      <label for="c-anon-threshold" data-i18n="config.upstream.backoff.threshold">连续失败熔断阈值</label>
+                      <input id="c-anon-threshold" type="number" min="1" placeholder="6" />
+                    </div>
+                    <div class="field">
+                      <label for="c-anon-base-hours" data-i18n="config.upstream.backoff.baseHours">初始熔断时长（小时）</label>
+                      <input id="c-anon-base-hours" type="number" min="1" placeholder="1" />
+                    </div>
+                    <div class="field">
+                      <label for="c-anon-max-hours" data-i18n="config.upstream.backoff.maxHours">最大熔断时长（小时）</label>
+                      <input id="c-anon-max-hours" type="number" min="1" placeholder="24" />
                     </div>
                   </div>
                 </section>
@@ -995,6 +1032,40 @@
                       <p class="section-caption" data-i18n="config.reasoning.byModelNote">
                         值可为 minimal、low、medium、high、xhigh、max 或 none；空对象表示不覆盖。
                       </p>
+                    </div>
+                  </div>
+                </section>
+                <section class="section">
+                  <div class="section-head">
+                    <div>
+                      <h2 class="section-title" data-i18n="config.hedge.title">微流水线竞速并发与会话粘性 (Hedged Speculative Concurrency)</h2>
+                      <p class="section-caption" data-i18n="config.hedge.caption">
+                        匿名免费通道遇到慢节点或首路卡顿延迟时，自动向候选节点发射推测并发，首包胜出并保持粘性路由。
+                      </p>
+                    </div>
+                  </div>
+                  <div class="form-grid">
+                    <div class="field full">
+                      <label class="check">
+                        <input id="c-hedge-enabled" type="checkbox" />
+                        <span data-i18n="config.hedge.enabled">启用竞速并发与会话粘性</span>
+                      </label>
+                    </div>
+                    <div class="field">
+                      <label for="c-hedge-delay" data-i18n="config.hedge.delay">首路卡顿超时 Delay（毫秒）</label>
+                      <input id="c-hedge-delay" type="number" min="0" placeholder="650" />
+                    </div>
+                    <div class="field">
+                      <label for="c-hedge-interval" data-i18n="config.hedge.interval">候选路发射间隔 Interval（毫秒）</label>
+                      <input id="c-hedge-interval" type="number" min="0" placeholder="120" />
+                    </div>
+                    <div class="field">
+                      <label for="c-hedge-max" data-i18n="config.hedge.max">最大并发候选数 Max Candidates</label>
+                      <input id="c-hedge-max" type="number" min="1" placeholder="5" />
+                    </div>
+                    <div class="field">
+                      <label for="c-hedge-session-ttl" data-i18n="config.hedge.sessionTTL">会话粘性保持时间 Session TTL（分钟）</label>
+                      <input id="c-hedge-session-ttl" type="number" min="0" placeholder="30" />
                     </div>
                   </div>
                 </section>
@@ -1047,6 +1118,30 @@
                         首个 SSE 事件超时（秒，0 关闭）
                       </label>
                       <input id="c-first-event-timeout" type="number" min="0" max="86400" />
+                    </div>
+                    <div class="field">
+                      <label for="c-max-anon-exits" data-i18n="config.performance.maxAnonExits">
+                        单请求最大匿名出口数
+                      </label>
+                      <input
+                        id="c-max-anon-exits"
+                        type="number"
+                        min="0"
+                        placeholder="0 = 内置上限 5"
+                        data-i18n-attr="placeholder:config.performance.maxAnonExitsHint"
+                      />
+                    </div>
+                    <div class="field">
+                      <label for="c-free-tier-block" data-i18n="config.performance.freeTierBlock">
+                        节点封锁冷却（秒）
+                      </label>
+                      <input
+                        id="c-free-tier-block"
+                        type="number"
+                        min="0"
+                        placeholder="0 = 内置 15 分钟"
+                        data-i18n-attr="placeholder:config.performance.freeTierBlockHint"
+                      />
                     </div>
                   </div>
                 </section>
