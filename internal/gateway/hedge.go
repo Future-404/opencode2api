@@ -28,6 +28,7 @@ type hedgedAttemptResult struct {
 	session    string
 	attemptNum int
 	err        error
+	legs       []string
 }
 
 // hedgedAttemptFunc is the attempt-dispatch abstraction executed by each hedged branch.
@@ -35,9 +36,13 @@ type hedgedAttemptFunc func(ctx context.Context, attemptNum int, session string)
 
 // normalizeHedgeConfig validates and applies default boundaries defensively.
 func normalizeHedgeConfig(cfg config.HedgeConfig) (delay time.Duration, interval time.Duration, maxCandidates int) {
+	if !cfg.Enabled {
+		return 0, 0, 1
+	}
+
 	maxCandidates = cfg.MaxCandidates
-	if maxCandidates <= 1 {
-		maxCandidates = 1
+	if maxCandidates <= 0 {
+		maxCandidates = defaultHedgeCandidates
 	}
 
 	delayMs := cfg.DelayMs
@@ -101,6 +106,15 @@ func executeHedgedPipeline(
 
 	launch := func(idx int, session string) {
 		branchCtx, branchCancel := context.WithCancel(ctx)
+		// Isolate per-branch request shape and telemetry metadata to prevent concurrent data races
+		branchCtx = context.WithValue(branchCtx, requestShapeContextKey{}, &requestShape{})
+		branchMeta := &telemetry.RequestMeta{}
+		if parentMeta := telemetry.MetaFromContext(ctx); parentMeta != nil {
+			*branchMeta = *parentMeta
+			branchMeta.Legs = nil
+		}
+		branchCtx = telemetry.WithRequestMeta(branchCtx, branchMeta)
+
 		branchCancels = append(branchCancels, branchCancel)
 		go func() {
 			defer func() {
@@ -113,11 +127,16 @@ func executeHedgedPipeline(
 				}
 			}()
 			resp, err := attempt(branchCtx, idx, session)
+			var legs []string
+			if bMeta := telemetry.MetaFromContext(branchCtx); bMeta != nil && len(bMeta.Legs) > 0 {
+				legs = append([]string(nil), bMeta.Legs...)
+			}
 			resultCh <- hedgedAttemptResult{
 				resp:       resp,
 				session:    session,
 				attemptNum: idx,
 				err:        err,
+				legs:       legs,
 			}
 		}()
 	}
@@ -172,6 +191,11 @@ func executeHedgedPipeline(
 		case res := <-resultCh:
 			resultsRead++
 			active--
+
+			// Safely merge attempt legs into parent RequestMeta in serial fashion
+			if parentMeta := telemetry.MetaFromContext(ctx); parentMeta != nil && len(res.legs) > 0 {
+				parentMeta.Legs = append(parentMeta.Legs, res.legs...)
+			}
 
 			// First-Byte Winner Takes All
 			if isHedgeWinner(res.resp, res.err) {

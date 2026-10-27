@@ -16,6 +16,7 @@ import (
 	"opencode2api/internal/httpx"
 	"opencode2api/internal/identity"
 	"opencode2api/internal/models"
+	"opencode2api/internal/telemetry"
 )
 
 // trackingBody wraps a bytes.Reader with an atomic close counter.
@@ -223,20 +224,16 @@ func TestHedgedPipeline_LosingBranchBodyDrained(t *testing.T) {
 
 	attemptFn := func(ctx context.Context, attemptNum int, session string) (*http.Response, error) {
 		if attemptNum == 0 {
-			// Slower attempt
-			select {
-			case <-time.After(80 * time.Millisecond):
-				return &http.Response{
-					StatusCode: http.StatusOK,
-					Body:       body0,
-				}, nil
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
+			// Branch 0 fails fast with 429 and returns body0
+			time.Sleep(5 * time.Millisecond)
+			return &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Body:       body0,
+			}, nil
 		}
 
-		// Faster attempt
-		time.Sleep(10 * time.Millisecond)
+		// Candidate 1 succeeds with 200 OK and body1
+		time.Sleep(15 * time.Millisecond)
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Body:       body1,
@@ -249,6 +246,11 @@ func TestHedgedPipeline_LosingBranchBodyDrained(t *testing.T) {
 	}
 	if resp == nil {
 		t.Fatalf("expected non-nil response")
+	}
+
+	// Verify losing branch 0's response body was drained and closed by the pipeline
+	if !body0.closed.Load() {
+		t.Fatalf("expected losing body0 to be closed via DrainAndClose")
 	}
 
 	// Winner body should NOT be closed yet
@@ -264,8 +266,9 @@ func TestHedgedPipeline_LosingBranchBodyDrained(t *testing.T) {
 }
 
 func TestHedgedPipeline_BoundsAndDefaults(t *testing.T) {
-	// Zero or invalid values should fall back to safe defaults
+	// Zero or invalid values should fall back to safe defaults when Enabled is true
 	delay, interval, maxCandidates := normalizeHedgeConfig(config.HedgeConfig{
+		Enabled:       true,
 		DelayMs:       0,
 		IntervalMs:    -5,
 		MaxCandidates: 0,
@@ -277,8 +280,17 @@ func TestHedgedPipeline_BoundsAndDefaults(t *testing.T) {
 	if interval != 120*time.Millisecond {
 		t.Fatalf("expected default interval 120ms, got %v", interval)
 	}
-	if maxCandidates != 1 {
-		t.Fatalf("expected maxCandidates 1 when <=0, got %d", maxCandidates)
+	if maxCandidates != 5 {
+		t.Fatalf("expected default maxCandidates 5 when <=0, got %d", maxCandidates)
+	}
+
+	// When Enabled is false, maxCandidates should be 1 regardless of configured maxCandidates
+	_, _, disabledCandidates := normalizeHedgeConfig(config.HedgeConfig{
+		Enabled:       false,
+		MaxCandidates: 5,
+	})
+	if disabledCandidates != 1 {
+		t.Fatalf("expected maxCandidates 1 when Enabled is false, got %d", disabledCandidates)
 	}
 
 	// If MaxCandidates == 1, execute as a single attempt
@@ -291,7 +303,7 @@ func TestHedgedPipeline_BoundsAndDefaults(t *testing.T) {
 		}, nil
 	}
 
-	resp, _, err, attempts := executeHedgedPipeline(context.Background(), config.HedgeConfig{MaxCandidates: 1}, "ses_single", attemptFn)
+	resp, _, err, attempts := executeHedgedPipeline(context.Background(), config.HedgeConfig{Enabled: true, MaxCandidates: 1}, "ses_single", attemptFn)
 	if err != nil || resp == nil {
 		t.Fatalf("expected successful single attempt, err: %v", err)
 	}
@@ -413,4 +425,65 @@ func TestHedgedPipeline_GatewayAnonymousPreconditions(t *testing.T) {
 		t.Fatalf("expected 'no prepared Zen request body' error, got %v", err)
 	}
 }
+
+func TestHedgedPipeline_ContextIsolationAndLegs(t *testing.T) {
+	parentMeta := &telemetry.RequestMeta{
+		Channel: "test_channel",
+	}
+	parentCtx := telemetry.WithRequestMeta(context.Background(), parentMeta)
+	parentCtx = context.WithValue(parentCtx, requestShapeContextKey{}, &requestShape{})
+
+	cfg := config.HedgeConfig{
+		Enabled:       true,
+		DelayMs:       10,
+		IntervalMs:    10,
+		MaxCandidates: 3,
+	}
+
+	attemptFn := func(ctx context.Context, attemptNum int, session string) (*http.Response, error) {
+		// Verify branch receives isolated RequestMeta and requestShape
+		bMeta := telemetry.MetaFromContext(ctx)
+		if bMeta == nil || bMeta == parentMeta {
+			t.Errorf("expected branch to have separate non-nil RequestMeta instance")
+		}
+
+		shape := requestShapeFrom(ctx)
+		_ = shape
+		setRequestShape(ctx, false, nil)
+
+		// Record legs on branch
+		if attemptNum == 0 {
+			bMeta.Legs = append(bMeta.Legs, "anon:429:10ms")
+			return &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Body:       io.NopCloser(bytes.NewReader([]byte("429"))),
+			}, nil
+		}
+
+		bMeta.Legs = append(bMeta.Legs, "anon:200:15ms")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader([]byte("200"))),
+		}, nil
+	}
+
+	resp, _, err, attempts := executeHedgedPipeline(parentCtx, cfg, "ses_iso", attemptFn)
+	if err != nil || resp == nil {
+		t.Fatalf("expected winner, err=%v", err)
+	}
+	_ = resp.Body.Close()
+
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+
+	// Verify parentMeta.Legs received legs sequentially from branches
+	if len(parentMeta.Legs) != 2 {
+		t.Fatalf("expected 2 legs merged into parentMeta, got %d: %v", len(parentMeta.Legs), parentMeta.Legs)
+	}
+	if parentMeta.Legs[0] != "anon:429:10ms" || parentMeta.Legs[1] != "anon:200:15ms" {
+		t.Fatalf("unexpected parent legs: %v", parentMeta.Legs)
+	}
+}
+
 
