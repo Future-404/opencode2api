@@ -61,11 +61,22 @@ function fillConfig(value) {
   $("#c-proxyfile").value = value.proxyfile;
   $("#c-up-zen").value = value.upstream.zen;
   $("#c-up-go").value = value.upstream.go;
+  $("#c-up-anon").value = (value.upstream && value.upstream.anonymous) || "";
+  const hedge = value.hedge || {};
+  $("#c-hedge-enabled").checked = hedge.enabled ?? true;
+  $("#c-hedge-delay").value = hedge.delay_ms ?? 650;
+  $("#c-hedge-interval").value = hedge.interval_ms ?? 120;
+  $("#c-hedge-max").value = hedge.max_candidates ?? 5;
+  $("#c-hedge-session-ttl").value = hedge.session_ttl_minutes ?? 30;
   $("#c-attempts").value = value.retry.max_attempts;
   $("#c-timeout").value = value.retry.timeout_seconds;
   $("#c-refresh").value = value.models.refresh_seconds;
   $("#c-protocols").value = JSON.stringify(value.models.protocols || {}, null, 2);
   $("#c-free-only").checked = !!value.models.free_only;
+  const backoff = (value.models && value.models.anonymous_backoff) || {};
+  $("#c-anon-threshold").value = backoff.threshold || 6;
+  $("#c-anon-base-hours").value = backoff.base_hours || 1;
+  $("#c-anon-max-hours").value = backoff.max_hours || 24;
   const reasoning = value.reasoning || {};
   $("#c-reasoning-effort").value = reasoning.effort || "";
   $("#c-reasoning-by-model").value = JSON.stringify(reasoning.effort_by_model || {}, null, 2);
@@ -77,6 +88,8 @@ function fillConfig(value) {
   $("#c-cooldown").value = value.performance.failure_cooldown_seconds;
   $("#c-attempt-timeout").value = value.performance.attempt_timeout_seconds;
   $("#c-first-event-timeout").value = value.performance.first_event_timeout_seconds || 0;
+  $("#c-max-anon-exits").value = (value.performance && value.performance.max_anonymous_exits) || 0;
+  $("#c-free-tier-block").value = (value.performance && value.performance.free_tier_block_seconds) || 0;
   $("#c-level").value = value.logging.level;
   $("#c-ring").value = value.logging.ring_size;
   $("#c-dump-bodies").checked = !!value.logging.dump_request_bodies;
@@ -104,12 +117,28 @@ async function save(event) {
       proxies: secretInputs("proxies"),
       proxyfile: $("#c-proxyfile").value,
       prefer: $("#c-prefer").value,
-      upstream: { zen: $("#c-up-zen").value, go: $("#c-up-go").value },
+      upstream: {
+        zen: $("#c-up-zen").value,
+        go: $("#c-up-go").value,
+        anonymous: $("#c-up-anon").value.trim(),
+      },
+      hedge: {
+        enabled: $("#c-hedge-enabled").checked,
+        delay_ms: numberValue("#c-hedge-delay"),
+        interval_ms: numberValue("#c-hedge-interval"),
+        max_candidates: numberValue("#c-hedge-max"),
+        session_ttl_minutes: numberValue("#c-hedge-session-ttl"),
+      },
       retry: { max_attempts: numberValue("#c-attempts"), timeout_seconds: numberValue("#c-timeout") },
       models: {
         refresh_seconds: numberValue("#c-refresh"),
         protocols: JSON.parse($("#c-protocols").value || "{}"),
         free_only: $("#c-free-only").checked,
+        anonymous_backoff: {
+          threshold: numberValue("#c-anon-threshold"),
+          base_hours: numberValue("#c-anon-base-hours"),
+          max_hours: numberValue("#c-anon-max-hours"),
+        },
       },
       reasoning: {
         effort: $("#c-reasoning-effort").value,
@@ -124,6 +153,8 @@ async function save(event) {
         failure_cooldown_seconds: numberValue("#c-cooldown"),
         attempt_timeout_seconds: numberValue("#c-attempt-timeout"),
         first_event_timeout_seconds: numberValue("#c-first-event-timeout"),
+        max_anonymous_exits: numberValue("#c-max-anon-exits"),
+        free_tier_block_seconds: numberValue("#c-free-tier-block"),
       },
       logging: {
         level: $("#c-level").value,

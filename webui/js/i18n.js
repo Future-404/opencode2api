@@ -254,7 +254,9 @@ const DICTIONARY = {
       "config.secrets.caption":
         "Sensitive values are masked by default; a cleared value only takes effect after saving.",
       "config.secrets.reveal": "Reveal after re-verification",
-      "config.secrets.anonymous": "Enable the Zen anonymous channel",
+      "config.secrets.anonymous": "Enable anonymous free tier (v2 Inference)",
+      "config.secrets.anonymous.hint":
+        "Use official free models without configuring upstream keys (via v2 /inference endpoint).",
       "config.secrets.add": "One key per line",
       "config.proxy.title": "Proxy nodes",
       "config.proxy.caption":
@@ -275,11 +277,31 @@ const DICTIONARY = {
       "config.upstream.title": "Upstream and protocol routing",
       "config.upstream.caption":
         "anonymous will use every available proxy; an explicit protocol mapping wins over inferring the protocol from the model name.",
+      "config.upstream.zen.hint": "Only used for legacy Zen paid key lane (v1 protocol).",
+      "config.upstream.anonymous": "Anonymous URL",
+      "config.upstream.anonymous.hint":
+        "OpenCode v2 keyless free inference endpoint; leave empty for default https://opencode.ai/inference.",
+      "config.upstream.anon.hint":
+        "OpenCode v2 keyless free inference endpoint; leave empty for default https://opencode.ai/inference.",
       "config.upstream.freeOnly": "Only expose free models (even when Zen / Go Keys are configured)",
       "config.upstream.attempts": "Max attempts per Key Tier",
       "config.upstream.timeout": "Request timeout (seconds)",
       "config.upstream.refresh": "Model refresh interval (seconds)",
       "config.upstream.protocols": "Model protocol overrides (JSON)",
+      "config.upstream.backoff.title": "Anonymous circuit breaker",
+      "config.upstream.backoff.caption":
+        "Automatically trip the anonymous channel and back off exponentially when consecutive upstream failures reach the threshold.",
+      "config.upstream.backoff.threshold": "Failure threshold",
+      "config.upstream.backoff.baseHours": "Base cooldown (hours)",
+      "config.upstream.backoff.maxHours": "Max cooldown (hours)",
+      "config.hedge.title": "Hedged Speculative Concurrency & Session Affinity",
+      "config.hedge.caption":
+        "When anonymous free exits encounter slow nodes or stall delays, automatically launch speculative concurrent attempts to candidate nodes, winner takes all and preserves session affinity.",
+      "config.hedge.enabled": "Enable hedged concurrency & session affinity",
+      "config.hedge.delay": "First attempt stall delay (ms)",
+      "config.hedge.interval": "Candidate launch interval (ms)",
+      "config.hedge.max": "Max concurrent candidates",
+      "config.hedge.sessionTTL": "Session affinity TTL (minutes)",
       "config.reasoning.title": "Thinking effort",
       "config.reasoning.caption":
         "Applied only when the client does not specify an effort; per-model overrides take priority. Choosing “Off” removes reasoning for requests that do not ask for it.",
@@ -298,6 +320,12 @@ const DICTIONARY = {
       "config.performance.attemptTimeout": "Attempt timeout (seconds)",
       "config.performance.attemptTimeoutHint": "0 = follow the request timeout",
       "config.performance.firstEvent": "First SSE event timeout (seconds, 0 disables)",
+      "config.performance.maxAnonExits": "Max anonymous exit walk",
+      "config.performance.maxAnonExits.hint": "0 = built-in cap 5",
+      "config.performance.maxAnonExitsHint": "0 = built-in cap 5",
+      "config.performance.freeTierBlock": "Abuse block cooldown (seconds)",
+      "config.performance.freeTierBlock.hint": "0 = built-in 15 minutes",
+      "config.performance.freeTierBlockHint": "0 = built-in 15 minutes",
       "config.performance.level": "Log level",
       "config.performance.ring": "Log ring size",
       "config.performance.dump":
@@ -813,7 +841,9 @@ const DICTIONARY = {
       "config.secrets.caption":
         "Giá trị nhạy cảm mặc định chỉ hiện dạng che; chỉ lưu sau khi gỡ bỏ mới có hiệu lực.",
       "config.secrets.reveal": "Xem sau khi xác minh lại",
-      "config.secrets.anonymous": "Bật kênh ẩn danh Zen",
+      "config.secrets.anonymous": "Bật kênh ẩn danh miễn phí (v2 Inference)",
+      "config.secrets.anonymous.hint":
+        "Sử dụng mô hình miễn phí chính thức mà không cần cấu hình Key upstream (qua endpoint v2 /inference).",
       "config.secrets.add": "Mỗi dòng thêm một key",
       "config.proxy.title": "Nút Proxy",
       "config.proxy.caption":
@@ -834,11 +864,31 @@ const DICTIONARY = {
       "config.upstream.title": "Upstream và định tuyến giao thức",
       "config.upstream.caption":
         "anonymous sẽ dùng hết các Proxy khả dụng; ánh xạ protocol tường minh được ưu tiên hơn việc suy luận từ tên mô hình.",
+      "config.upstream.zen.hint": "Chỉ dùng cho kênh Zen Key trả phí truyền thống (giao thức v1).",
+      "config.upstream.anonymous": "URL ẩn danh",
+      "config.upstream.anonymous.hint":
+        "Kênh suy luận miễn phí không cần Key của OpenCode v2; để trống mặc định là https://opencode.ai/inference.",
+      "config.upstream.anon.hint":
+        "Kênh suy luận miễn phí không cần Key của OpenCode v2; để trống mặc định là https://opencode.ai/inference.",
       "config.upstream.freeOnly": "Chỉ công khai mô hình miễn phí (kể cả khi đã cấu hình Zen / Go Key)",
       "config.upstream.attempts": "Số lần thử tối đa cho mỗi Key Tier",
       "config.upstream.timeout": "Timeout của request (giây)",
       "config.upstream.refresh": "Làm mới mô hình (giây)",
       "config.upstream.protocols": "Ghi đè giao thức mô hình (JSON)",
+      "config.upstream.backoff.title": "Cầu dao ngắt mạch kênh ẩn danh (Circuit Breaker)",
+      "config.upstream.backoff.caption":
+        "Tự động ngắt kênh ẩn danh và giảm tải theo cấp số nhân khi số lần thất bại liên tiếp đạt ngưỡng.",
+      "config.upstream.backoff.threshold": "Ngưỡng lỗi liên tiếp",
+      "config.upstream.backoff.baseHours": "Thời gian ngắt ban đầu (giờ)",
+      "config.upstream.backoff.maxHours": "Thời gian ngắt tối đa (giờ)",
+      "config.hedge.title": "Đồng thời suy đoán Hedged & Gắn kết phiên",
+      "config.hedge.caption":
+        "Khi kênh ẩn danh miễn phí gặp nút chậm hoặc độ trễ phản hồi, tự động khởi động đồng thời suy đoán đến các nút dự phòng, phản hồi đầu tiên chiến thắng và duy trì định tuyến phiên.",
+      "config.hedge.enabled": "Bật đồng thời suy đoán và gắn kết phiên",
+      "config.hedge.delay": "Độ trễ chờ phản hồi đầu tiên (ms)",
+      "config.hedge.interval": "Khoảng cách phóng ứng viên (ms)",
+      "config.hedge.max": "Số ứng viên đồng thời tối đa",
+      "config.hedge.sessionTTL": "TTL gắn kết phiên (phút)",
       "config.reasoning.title": "Cường độ Thinking",
       "config.reasoning.caption":
         "Chỉ áp dụng khi client không chỉ định rõ; có thể ghi đè theo từng mô hình. Chọn “Tắt” sẽ bỏ reasoning cho các request không yêu cầu rõ.",
@@ -858,6 +908,12 @@ const DICTIONARY = {
       "config.performance.attemptTimeoutHint": "0 = theo timeout của request",
       "config.performance.firstEvent":
         "Timeout sự kiện SSE đầu tiên (giây, 0 để tắt)",
+      "config.performance.maxAnonExits": "Số cổng thoát ẩn danh tối đa mỗi yêu cầu",
+      "config.performance.maxAnonExits.hint": "0 = giới hạn mặc định 5",
+      "config.performance.maxAnonExitsHint": "0 = giới hạn mặc định 5",
+      "config.performance.freeTierBlock": "Thời gian hồi phục khi bị chặn (giây)",
+      "config.performance.freeTierBlock.hint": "0 = mặc định 15 phút",
+      "config.performance.freeTierBlockHint": "0 = mặc định 15 phút",
       "config.performance.level": "Mức log",
       "config.performance.ring": "Kích thước ring log",
       "config.performance.dump":
@@ -1383,7 +1439,9 @@ const DICTIONARY = {
       "config.secrets.caption":
         "I valori sensibili sono mascherati per impostazione predefinita; un valore svuotato ha effetto solo dopo il salvataggio.",
       "config.secrets.reveal": "Mostra dopo nuova verifica",
-      "config.secrets.anonymous": "Abilita il canale anonimo Zen",
+      "config.secrets.anonymous": "Abilita canale anonimo gratuito (v2 Inference)",
+      "config.secrets.anonymous.hint":
+        "Usa i modelli gratuiti ufficiali senza configurare chiavi upstream (tramite endpoint v2 /inference).",
       "config.secrets.add": "Una chiave per riga",
       "config.proxy.title": "Nodi proxy",
       "config.proxy.caption":
@@ -1404,12 +1462,33 @@ const DICTIONARY = {
       "config.upstream.title": "Upstream e instradamento protocolli",
       "config.upstream.caption":
         "anonymous userà ogni proxy disponibile; una mappatura esplicita di protocollo prevale sull'inferenza del protocollo dal nome del modello.",
+      "config.upstream.zen.hint":
+        "Usato solo per il canale Zen con chiave a pagamento legacy (protocollo v1).",
+      "config.upstream.anonymous": "URL anonimo",
+      "config.upstream.anonymous.hint":
+        "Endpoint di inferenza gratuita senza chiavi di OpenCode v2; lascia vuoto per il predefinito https://opencode.ai/inference.",
+      "config.upstream.anon.hint":
+        "Endpoint di inferenza gratuita senza chiavi di OpenCode v2; lascia vuoto per il predefinito https://opencode.ai/inference.",
       "config.upstream.freeOnly":
         "Espone solo modelli gratuiti (anche quando sono configurate Zen / Go Key)",
       "config.upstream.attempts": "Tentativi massimi per Key Tier",
       "config.upstream.timeout": "Timeout richiesta (secondi)",
       "config.upstream.refresh": "Intervallo di refresh modelli (secondi)",
       "config.upstream.protocols": "Override protocollo modello (JSON)",
+      "config.upstream.backoff.title": "Interruttore di circuito anonimo (Circuit Breaker)",
+      "config.upstream.backoff.caption":
+        "Disconnette automaticamente il canale anonimo con backoff esponenziale quando i fallimenti consecutivi a monte raggiungono la soglia.",
+      "config.upstream.backoff.threshold": "Soglia di errore consecutivo",
+      "config.upstream.backoff.baseHours": "Tempo di cooldown iniziale (ore)",
+      "config.upstream.backoff.maxHours": "Tempo di cooldown massimo (ore)",
+      "config.hedge.title": "Concorrenza speculativa hedged e affinità di sessione",
+      "config.hedge.caption":
+        "Quando le uscite gratuite anonime incontrano nodi lenti o ritardi, avvia automaticamente tentativi speculativi concorrenti verso nodi candidati, il primo vince e mantiene l'affinità di sessione.",
+      "config.hedge.enabled": "Abilita concorrenza hedged e affinità di sessione",
+      "config.hedge.delay": "Ritardo di stallo del primo tentativo (ms)",
+      "config.hedge.interval": "Intervallo di lancio dei candidati (ms)",
+      "config.hedge.max": "Numero massimo di candidati concorrenti",
+      "config.hedge.sessionTTL": "TTL di affinità di sessione (minuti)",
       "config.reasoning.title": "Livello di ragionamento",
       "config.reasoning.caption":
         "Applicato solo quando il client non specifica un livello di ragionamento; gli override per modello hanno priorità. Scegliere “Disattivo” rimuove il ragionamento per le richieste che non lo richiedono.",
@@ -1429,6 +1508,12 @@ const DICTIONARY = {
       "config.performance.attemptTimeout": "Timeout del tentativo (secondi)",
       "config.performance.attemptTimeoutHint": "0 = segui il timeout della richiesta",
       "config.performance.firstEvent": "Timeout del primo evento SSE (secondi, 0 disabilita)",
+      "config.performance.maxAnonExits": "Numero massimo di uscite anonime per richiesta",
+      "config.performance.maxAnonExits.hint": "0 = limite predefinito 5",
+      "config.performance.maxAnonExitsHint": "0 = limite predefinito 5",
+      "config.performance.freeTierBlock": "Cooldown di blocco per abuso (secondi)",
+      "config.performance.freeTierBlock.hint": "0 = 15 minuti predefiniti",
+      "config.performance.freeTierBlockHint": "0 = 15 minuti predefiniti",
       "config.performance.level": "Livello di log",
       "config.performance.ring": "Dimensione ring di log",
       "config.performance.dump":
