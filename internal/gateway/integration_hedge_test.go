@@ -81,7 +81,7 @@ func TestGateway_ConversationSessionPromotion(t *testing.T) {
 	ctxTurn1 := telemetry.WithRequestMeta(context.Background(), metaTurn1)
 	ctxTurn1 = context.WithValue(ctxTurn1, requestShapeContextKey{}, &requestShape{})
 
-	idsTurn1 := identity.RequestIDs{Session: convKey}
+	idsTurn1 := identity.RequestIDs{Session: convKey, Conversation: convKey}
 
 	resp1, err, attempts1 := gw.doAnonymousUpstream(ctxTurn1, route, bodies, idsTurn1, 0)
 	if err != nil {
@@ -151,7 +151,7 @@ func TestGateway_ConversationSessionPromotion(t *testing.T) {
 	ctxTurn2 := telemetry.WithRequestMeta(context.Background(), metaTurn2)
 	ctxTurn2 = context.WithValue(ctxTurn2, requestShapeContextKey{}, &requestShape{})
 
-	idsTurn2 := identity.RequestIDs{Session: convKey}
+	idsTurn2 := identity.RequestIDs{Session: "ses_initial_2", Conversation: convKey}
 
 	resp2, err, attempts2 := gw.doAnonymousUpstream(ctxTurn2, route, bodies, idsTurn2, 0)
 	if err != nil {
@@ -391,7 +391,7 @@ func TestGateway_DoUpstreamTiers_HedgedPromotion(t *testing.T) {
 	ctxTurn1 := telemetry.WithRequestMeta(context.Background(), metaTurn1)
 	ctxTurn1 = context.WithValue(ctxTurn1, requestShapeContextKey{}, &requestShape{})
 
-	idsTurn1 := identity.RequestIDs{Session: convKey}
+	idsTurn1 := identity.RequestIDs{Session: convKey, Conversation: convKey}
 
 	resp1, effRoute1, attempts1, err := gw.doUpstreamTiers(ctxTurn1, route, bodies, idsTurn1, 0)
 	if err != nil {
@@ -421,7 +421,7 @@ func TestGateway_DoUpstreamTiers_HedgedPromotion(t *testing.T) {
 	ctxTurn2 := telemetry.WithRequestMeta(context.Background(), metaTurn2)
 	ctxTurn2 = context.WithValue(ctxTurn2, requestShapeContextKey{}, &requestShape{})
 
-	idsTurn2 := identity.RequestIDs{Session: convKey}
+	idsTurn2 := identity.RequestIDs{Session: "ses_initial_2", Conversation: convKey}
 
 	resp2, _, attempts2, err := gw.doUpstreamTiers(ctxTurn2, route, bodies, idsTurn2, 0)
 	if err != nil {

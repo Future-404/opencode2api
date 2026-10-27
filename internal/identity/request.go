@@ -38,6 +38,7 @@ type RequestIDs struct {
 	Message       string
 	Project       string
 	ParentSession string
+	Conversation  string
 }
 
 // DeriveRequestIDs derives the upstream identity of one request. scope names
@@ -99,7 +100,20 @@ func DeriveRequestIDs(r *http.Request, body map[string]any, scope string) Reques
 		Message:       UserMessageID(r, body, session),
 		Project:       projectSignal,
 		ParentSession: parentSession,
+		Conversation:  ConversationKey(scope, signal),
 	}
+}
+
+// ConversationKey returns a stable conversation identifier across multi-turn requests.
+func ConversationKey(scope, signal string) string {
+	if signal == "" {
+		return ""
+	}
+	if scope != "" {
+		signal = scope + "\x00" + signal
+	}
+	sum := sha256.Sum256([]byte("conv\x00" + signal))
+	return "conv_" + hex.EncodeToString(sum[:16])
 }
 
 // scopedSessionID keeps an official client-minted session verbatim and

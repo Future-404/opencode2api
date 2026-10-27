@@ -360,7 +360,10 @@ func (g *Gateway) doAnonymousUpstream(ctx context.Context, route models.Route, b
 		return g.doWarpAnonymousUpstream(ctx, route, bodies, ids, attemptOffset)
 	}
 
-	conversationKey := ids.Session
+	conversationKey := ids.Conversation
+	if conversationKey == "" {
+		conversationKey = ids.Session
+	}
 	activeSession := ids.Session
 	if g.sessionRouter != nil {
 		activeSession = g.sessionRouter.GetOrSet(conversationKey, ids.Session)
