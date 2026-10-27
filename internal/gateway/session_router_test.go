@@ -1,9 +1,12 @@
 package gateway
 
 import (
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
+
+	"opencode2api/internal/config"
 )
 
 func TestSessionRouter_GetOrSetAndPromote(t *testing.T) {
@@ -117,6 +120,34 @@ func TestSessionRouter_AutomatedEviction(t *testing.T) {
 	}
 	if sr.Len() != 1 {
 		t.Fatalf("expected 1 entry left, got %d", sr.Len())
+	}
+}
+
+func TestGateway_SessionRouterTTL(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.ServerKeys = []string{"test-key"}
+	cfg.Anonymous = true
+	cfg.Hedge.SessionTTLMinutes = 45
+
+	gw, err := New(cfg, slog.Default(), nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create gateway: %v", err)
+	}
+	if gw.sessionRouter == nil {
+		t.Fatalf("expected sessionRouter to be non-nil")
+	}
+	if gw.sessionRouter.ttl != 45*time.Minute {
+		t.Fatalf("expected sessionRouter ttl 45m, got %v", gw.sessionRouter.ttl)
+	}
+
+	// Test fallback when <= 0
+	cfg.Hedge.SessionTTLMinutes = 0
+	gw2, err := New(cfg, slog.Default(), nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create gateway: %v", err)
+	}
+	if gw2.sessionRouter.ttl != 30*time.Minute {
+		t.Fatalf("expected fallback sessionRouter ttl 30m, got %v", gw2.sessionRouter.ttl)
 	}
 }
 

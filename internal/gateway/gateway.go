@@ -125,6 +125,10 @@ func New(cfg config.Config, logger *slog.Logger, monitor *telemetry.Metrics, war
 	catalog := models.Catalog(cfg.Prefer, cfg.Models.Protocols)
 	catalog.SetRefreshInterval(time.Duration(cfg.Models.RefreshSeconds) * time.Second)
 	catalog.SetFreeOnly(cfg.Models.FreeOnly)
+	sessionTTL := time.Duration(cfg.Hedge.SessionTTLMinutes) * time.Minute
+	if sessionTTL <= 0 {
+		sessionTTL = 30 * time.Minute
+	}
 	return &Gateway{
 		cfg:            cfg,
 		rotation:       rotationManager,
@@ -136,7 +140,7 @@ func New(cfg config.Config, logger *slog.Logger, monitor *telemetry.Metrics, war
 		warp:           warpPool,
 		catalog:        catalog,
 		monitor:        monitor,
-		sessionRouter:  NewSessionRouter(30 * time.Minute),
+		sessionRouter:  NewSessionRouter(sessionTTL),
 		attemptTimeout: attemptDeadline(cfg),
 		freeTierBlock:  time.Duration(cfg.Performance.FreeTierBlockSeconds) * time.Second,
 	}, nil

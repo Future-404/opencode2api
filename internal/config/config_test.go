@@ -20,6 +20,9 @@ func TestConfig_HedgeDefaults(t *testing.T) {
 	if cfg.Hedge.MaxCandidates != 5 {
 		t.Fatalf("expected Hedge.MaxCandidates default 5, got %d", cfg.Hedge.MaxCandidates)
 	}
+	if cfg.Hedge.SessionTTLMinutes != 30 {
+		t.Fatalf("expected Hedge.SessionTTLMinutes default 30, got %d", cfg.Hedge.SessionTTLMinutes)
+	}
 }
 
 func TestConfig_HedgeJSONUnmarshal(t *testing.T) {
@@ -28,7 +31,8 @@ func TestConfig_HedgeJSONUnmarshal(t *testing.T) {
 			"enabled": false,
 			"delay_ms": 500,
 			"interval_ms": 100,
-			"max_candidates": 3
+			"max_candidates": 3,
+			"session_ttl_minutes": 45
 		}
 	}`
 	cfg := DefaultConfig()
@@ -46,6 +50,9 @@ func TestConfig_HedgeJSONUnmarshal(t *testing.T) {
 	}
 	if cfg.Hedge.MaxCandidates != 3 {
 		t.Fatalf("expected Hedge.MaxCandidates 3, got %d", cfg.Hedge.MaxCandidates)
+	}
+	if cfg.Hedge.SessionTTLMinutes != 45 {
+		t.Fatalf("expected Hedge.SessionTTLMinutes 45, got %d", cfg.Hedge.SessionTTLMinutes)
 	}
 }
 
@@ -75,6 +82,13 @@ func TestConfig_HedgeValidation(t *testing.T) {
 				c.Hedge.MaxCandidates = -5
 			},
 			errSubstr: "hedge.max_candidates must not be negative",
+		},
+		{
+			name: "negative session_ttl_minutes",
+			modify: func(c *Config) {
+				c.Hedge.SessionTTLMinutes = -1
+			},
+			errSubstr: "hedge.session_ttl_minutes must not be negative",
 		},
 	}
 

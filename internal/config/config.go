@@ -51,10 +51,11 @@ type Config struct {
 
 // HedgeConfig controls hedged speculative concurrency for anonymous free tier exits.
 type HedgeConfig struct {
-	Enabled       bool `json:"enabled"`
-	DelayMs       int  `json:"delay_ms"`
-	IntervalMs    int  `json:"interval_ms"`
-	MaxCandidates int  `json:"max_candidates"`
+	Enabled           bool `json:"enabled"`
+	DelayMs           int  `json:"delay_ms"`
+	IntervalMs        int  `json:"interval_ms"`
+	MaxCandidates     int  `json:"max_candidates"`
+	SessionTTLMinutes int  `json:"session_ttl_minutes"`
 }
 
 // ReasoningConfig forces a thinking level for requests that do not state one.
@@ -298,10 +299,11 @@ func DefaultConfig() Config {
 		WebUI:       WebUIConfig{Listen: "0.0.0.0:8081", SessionTTLMinutes: 720},
 		Prefer:      TierGo,
 		Hedge: HedgeConfig{
-			Enabled:       true,
-			DelayMs:       650,
-			IntervalMs:    120,
-			MaxCandidates: 5,
+			Enabled:           true,
+			DelayMs:           650,
+			IntervalMs:        120,
+			MaxCandidates:     5,
+			SessionTTLMinutes: 30,
 		},
 	}
 }
@@ -468,6 +470,9 @@ func Normalize(path string, cfg Config) (Config, error) {
 	}
 	if cfg.Hedge.MaxCandidates < 0 {
 		return Config{}, errors.New("hedge.max_candidates must not be negative")
+	}
+	if cfg.Hedge.SessionTTLMinutes < 0 {
+		return Config{}, errors.New("hedge.session_ttl_minutes must not be negative")
 	}
 	return cfg, nil
 }
