@@ -5,16 +5,43 @@ import * as store from "../store.js";
 import { t, onChange } from "../i18n.js";
 import { $, $$, bindTabs, el, openDialog, toast } from "../ui.js";
 
+// A long proxy list is rendered collapsed: the first CHIP_RENDER_LIMIT chips
+// plus a toggle. A single flex-wrap row with thousands of chips is what froze
+// the config page on large pools.
+const CHIP_RENDER_LIMIT = 100;
+const expandedChips = new Set();
+
 function renderChips(name) {
   const host = $(`#${name}-chips`);
   host.replaceChildren();
-  (store.get("config")?.[name] || []).forEach((item) => {
+  const items = store.get("config")?.[name] || [];
+  const expanded = expandedChips.has(name);
+  const visible = expanded ? items : items.slice(0, CHIP_RENDER_LIMIT);
+  visible.forEach((item) => {
     const remove = el("button", { type: "button", title: t("移除", "common.remove"), text: "×" });
     const chip = el("span", { class: "chip", dataset: { id: item.id } });
     remove.addEventListener("click", () => chip.remove());
     chip.append(el("span", { text: item.display }), remove);
     host.append(chip);
   });
+  if (items.length > visible.length)
+    host.append(chipToggle(`config.chips.expand`, `展开全部（共 ${items.length} 个）`, items.length, () => {
+      expandedChips.add(name);
+      renderChips(name);
+    }));
+  else if (expanded)
+    host.append(chipToggle(`config.chips.collapse`, "收起", null, () => {
+      expandedChips.delete(name);
+      renderChips(name);
+    }));
+}
+
+function chipToggle(key, fallback, count, onClick) {
+  const props = { type: "button", class: "chip chip-toggle", text: t(fallback, key, count) };
+  if (count != null) props.dataset = { count };
+  const button = el("button", props);
+  button.addEventListener("click", onClick);
+  return button;
 }
 
 function renderRestartNotice(value) {
@@ -34,7 +61,9 @@ function renderRestartNotice(value) {
 }
 
 function secretInputs(name) {
-  const kept = [...$(`#${name}-chips`).children].map((node) => ({ id: node.dataset.id }));
+  const kept = [...$(`#${name}-chips`).children]
+    .filter((node) => node.dataset.id !== undefined)
+    .map((node) => ({ id: node.dataset.id }));
   const added = $(`#${name}-new`)
     .value.split(/\r?\n/)
     .map((value) => value.trim())
@@ -73,6 +102,7 @@ function fillConfig(value) {
   $("#c-refresh").value = value.models.refresh_seconds;
   $("#c-protocols").value = JSON.stringify(value.models.protocols || {}, null, 2);
   $("#c-free-only").checked = !!value.models.free_only;
+  $("#c-active-probes").checked = !!(value.models && value.models.active_probes);
   const backoff = (value.models && value.models.anonymous_backoff) || {};
   $("#c-anon-threshold").value = backoff.threshold || 6;
   $("#c-anon-base-hours").value = backoff.base_hours || 1;
@@ -116,6 +146,7 @@ async function save(event) {
       },
       proxies: secretInputs("proxies"),
       proxyfile: $("#c-proxyfile").value,
+      proxy_bindings: current.proxy_bindings,
       prefer: $("#c-prefer").value,
       upstream: {
         zen: $("#c-up-zen").value,
@@ -134,6 +165,7 @@ async function save(event) {
         refresh_seconds: numberValue("#c-refresh"),
         protocols: JSON.parse($("#c-protocols").value || "{}"),
         free_only: $("#c-free-only").checked,
+        active_probes: $("#c-active-probes").checked,
         anonymous_backoff: {
           threshold: numberValue("#c-anon-threshold"),
           base_hours: numberValue("#c-anon-base-hours"),
@@ -255,7 +287,12 @@ export default {
       const value = store.get("config");
       if (value) renderRestartNotice(value);
       // Update chip tooltips in place so pending unsaved chip removals survive a language switch.
-      $$(".chips .chip button").forEach((button) => (button.title = t("移除", "common.remove")));
+      $$(".chips .chip > button").forEach((button) => (button.title = t("移除", "common.remove")));
+      $$(".chip-toggle").forEach((node) => {
+        node.textContent = node.dataset.count
+          ? t(`展开全部（共 ${node.dataset.count} 个）`, "config.chips.expand", node.dataset.count)
+          : t("收起", "config.chips.collapse");
+      });
     });
   },
 };

@@ -10,6 +10,7 @@ import (
 	"opencode2api/internal/config"
 	"opencode2api/internal/gateway"
 	"opencode2api/internal/httpx"
+	"opencode2api/internal/identity"
 	"opencode2api/internal/jsonutil"
 	modelcatalog "opencode2api/internal/models"
 	"opencode2api/internal/protocol"
@@ -30,9 +31,10 @@ type DebugKeySelection struct {
 // expressed in, which upstream key to test (Mode "auto" or "selected", the
 // latter naming Tier and ID), and the request body itself.
 type DebugInferenceRequest struct {
-	Protocol protocol.Protocol `json:"protocol"`
-	Key      DebugKeySelection `json:"key,omitempty"`
-	Request  map[string]any    `json:"request"`
+	Protocol protocol.Protocol      `json:"protocol"`
+	Key      DebugKeySelection      `json:"key,omitempty"`
+	Relay    gateway.RelaySelection `json:"relay,omitempty"`
+	Request  map[string]any         `json:"request"`
 }
 
 // DebugInferenceResult is the outcome of a Playground request: the status and
@@ -48,6 +50,7 @@ type DebugInferenceResult struct {
 	Route       modelcatalog.RouteDiagnostic `json:"route"`
 	SelectedKey *gateway.DebugKeyView        `json:"selected_key,omitempty"`
 	KeyTest     string                       `json:"key_test,omitempty"`
+	RelayTest   string                       `json:"relay_test,omitempty"`
 	Response    any                          `json:"response"`
 }
 
@@ -58,11 +61,12 @@ func (a *Server) handleDebugModels(w http.ResponseWriter, _ *http.Request) {
 	models, metadata := a.manager.DebugModels()
 	catalog := a.manager.Resources().Models
 	keys := a.manager.DebugKeys()
+	relays := a.manager.DebugRelays()
 	a.mu.Lock()
 	last := a.lastInference
 	a.mu.Unlock()
 	w.Header().Set("Cache-Control", "no-store")
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"models": models, "keys": keys, "metadata": metadata, "catalog": catalog, "last_inference": last})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"models": models, "keys": keys, "metadata": metadata, "catalog": catalog, "relays": relays, "last_inference": last})
 }
 
 // handleDebugInference runs a request through the gateway itself, in process
@@ -111,6 +115,23 @@ func (a *Server) handleDebugInference(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if !input.Relay.Empty() {
+		known := false
+		for index, name := range a.manager.DebugRelays() {
+			if input.Relay.Index != nil && *input.Relay.Index != index {
+				continue
+			}
+			if input.Relay.Name != "" && input.Relay.Name != name {
+				continue
+			}
+			known = true
+			break
+		}
+		if !known {
+			writeAdminError(w, http.StatusBadRequest, "unknown_relay", "relay.index or relay.name does not match a configured relay")
+			return
+		}
+	}
 	route := a.manager.DebugRoute(model, input.Protocol)
 	if selectedKey != nil {
 		selected, routeErr := a.manager.DebugRouteForTier(model, selectedKey.Tier)
@@ -139,11 +160,19 @@ func (a *Server) handleDebugInference(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	request.Header.Set("Authorization", "Bearer "+cfg.FirstEnabledServerKey())
+	if !input.Relay.Empty() {
+		request = request.WithContext(gateway.WithRelayOverride(request.Context(), input.Relay))
+	}
 	if selectedKey != nil {
 		request = request.WithContext(gateway.WithDebugKeyOverride(request.Context(), gateway.DebugKeyOverride{Tier: selectedKey.Tier, KeyID: selectedKey.ID}))
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
+	// A Playground request is not a conversation: it replays the same prompt on
+	// every click, so a session derived from the prompt stays one bucket until
+	// it is charged and every later click answers 429 while live traffic
+	// succeeds. A fresh session per click keeps the bench on its own bucket.
+	request.Header.Set("x-opencode-session", benchSession())
 	recorder := debugResponseRecorder()
 	started := time.Now()
 	a.manager.Handler().ServeHTTP(recorder, request)
@@ -172,7 +201,7 @@ func (a *Server) handleDebugInference(w http.ResponseWriter, r *http.Request) {
 	result := DebugInferenceResult{
 		OK: recorder.status >= 200 && recorder.status < 300, HTTPStatus: recorder.status,
 		DurationMS: max(duration.Milliseconds(), 0), RequestID: requestID, Route: route,
-		SelectedKey: selectedKey, KeyTest: keyTest, Response: raw,
+		SelectedKey: selectedKey, KeyTest: keyTest, RelayTest: trace.Proxy, Response: raw,
 	}
 	a.mu.Lock()
 	a.lastInference = &result
@@ -300,4 +329,10 @@ func sensitiveDebugKey(key string) bool {
 		}
 	}
 	return false
+}
+
+// benchSession returns a fresh upstream session for one Playground request. It
+// is canonical so the gateway forwards it verbatim instead of re-encoding it.
+func benchSession() string {
+	return identity.CanonicalSessionID(identity.RandomID("playground", 16))
 }

@@ -78,6 +78,19 @@ function renderKeys() {
   else select.value = "auto";
 }
 
+function renderRelays() {
+  const select = $("#play-relay");
+  if (!select) return;
+  const selected = select.value;
+  select.replaceChildren();
+  select.append(el("option", { value: "auto", text: t("任意 Relay（正常路由）", "playground.relay.auto") }));
+  (store.get("debug")?.relays || []).forEach((name, index) => {
+    select.append(el("option", { value: String(index), text: `${index} · ${name}` }));
+  });
+  if (selected && [...select.options].some((option) => option.value === selected)) select.value = selected;
+  else select.value = "auto";
+}
+
 function renderModels() {
   const select = $("#play-model");
   const selected = select.value;
@@ -88,6 +101,7 @@ function renderModels() {
   if (selected && [...select.options].some((option) => option.value === selected)) select.value = selected;
   if (!$("#play-request").value.trim()) resetTemplate();
   renderKeys();
+  renderRelays();
 }
 
 function showResult(result) {
@@ -119,6 +133,7 @@ function showResult(result) {
       keyTest || t("自动路由未单独判定", "play.keyVerdict.none"),
       result.key_test === "usable" ? "ok" : result.key_test ? "bad" : "",
     ],
+    [t("测试 Relay", "play.testedRelay"), result.relay_test || "—"],
     [t("实际路由", "play.actualRoute"), routeLabel],
     [t("原生协议", "play.nativeProtocol"), route.native_protocol || "—"],
     [
@@ -143,6 +158,9 @@ async function run(event) {
     toast(t(`请求 JSON 无效：${error.message}`, "toast.play.invalidJson", error.message), true);
     return;
   }
+  const relayValue = $("#play-relay")?.value || "auto";
+  const relayNames = store.get("debug")?.relays || [];
+  const relay = relayValue === "auto" ? undefined : { index: Number(relayValue), name: relayNames[Number(relayValue)] };
   const keyValue = $("#play-key").value;
   const key =
     keyValue === "auto"
@@ -158,7 +176,7 @@ async function run(event) {
       "lastPlayground",
       await api("/api/debug/inference", {
         method: "POST",
-        body: JSON.stringify({ protocol: $("#play-protocol").value, key, request }),
+        body: JSON.stringify({ protocol: $("#play-protocol").value, key, ...(relay ? { relay } : {}), request }),
       }),
     );
   } catch (error) {
@@ -169,57 +187,69 @@ async function run(event) {
   }
 }
 
+function paginate(name, items) {
+  const state = pagerState[name];
+  const totalPages = Math.max(1, Math.ceil(items.length / state.size));
+  state.page = Math.min(Math.max(1, state.page), totalPages);
+  $(`#${name}-pager-info`).textContent = t(
+    `第 ${state.page} / ${totalPages} 页 · 共 ${items.length} 条`,
+    "diag.pager.info",
+    state.page,
+    totalPages,
+    items.length,
+  );
+  $(`#${name}-pager-prev`).disabled = state.page <= 1;
+  $(`#${name}-pager-next`).disabled = state.page >= totalPages;
+  return items.slice((state.page - 1) * state.size, state.page * state.size);
+}
+
 function renderRequests() {
   const host = $("#upstream-requests");
   host.replaceChildren();
-  (store.get("monitor")?.upstream?.requests || [])
-    .slice(-100)
-    .reverse()
-    .forEach((request) => {
-      const terminal = {
-        stream_error: t("流式响应失败", "diag.streamError"),
-        client_canceled: t("客户端已取消", "diag.clientCanceled"),
-      };
-      const result = terminal[request.outcome]
-        ? `HTTP ${request.status} · ${terminal[request.outcome]}`
-        : request.status || request.outcome;
-      host.append(
-        el("tr", {}, [
-          el("td", { class: "mono", text: timeOnly(request.time) }),
-          el("td", { class: "mono", text: request.request_id }),
-          el("td", { text: request.model }),
-          el("td", { text: request.tier || "—" }),
-          el("td", { text: request.channel }),
-          el("td", { text: request.key_id || "—" }),
-          el("td", { class: "num", text: request.attempts }),
-          el("td", { class: request.success ? "ok" : "bad", text: result }),
-          el("td", { class: "num", text: `${request.duration_ms} ms` }),
-        ]),
-      );
-    });
+  const requests = paginate("requests", (store.get("monitor")?.upstream?.requests || []).slice().reverse());
+  requests.forEach((request) => {
+    const terminal = {
+      stream_error: t("流式响应失败", "diag.streamError"),
+      client_canceled: t("客户端已取消", "diag.clientCanceled"),
+    };
+    const result = terminal[request.outcome]
+      ? `HTTP ${request.status} · ${terminal[request.outcome]}`
+      : request.status || request.outcome;
+    host.append(
+      el("tr", {}, [
+        el("td", { class: "mono", text: timeOnly(request.time) }),
+        el("td", { class: "mono", text: request.request_id }),
+        el("td", { text: request.model }),
+        el("td", { text: request.tier || "—" }),
+        el("td", { text: request.channel }),
+        el("td", { text: request.key_id || "—" }),
+        el("td", { class: "num", text: request.attempts }),
+        el("td", { class: request.success ? "ok" : "bad", text: result }),
+        el("td", { class: "num", text: `${request.duration_ms} ms` }),
+      ]),
+    );
+  });
   if (!host.children.length) emptyRow(host, 9, t("尚无请求路由", "diag.noRequests"));
 }
 
 function renderAttempts() {
   const host = $("#upstream-attempts");
   host.replaceChildren();
-  (store.get("monitor")?.upstream?.recent || [])
-    .slice(-100)
-    .reverse()
-    .forEach((attempt) => {
-      host.append(
-        el("tr", {}, [
-          el("td", { class: "mono", text: timeOnly(attempt.time) }),
-          el("td", { class: "mono", text: attempt.request_id }),
-          el("td", { text: attempt.model }),
-          el("td", { text: `${attempt.tier} / ${attempt.channel}` }),
-          el("td", { text: attempt.key_id }),
-          el("td", { text: attempt.proxy_node }),
-          el("td", { class: attempt.success ? "ok" : "bad", text: attempt.status || attempt.outcome }),
-          el("td", { class: "num", text: `${attempt.duration_ms} ms` }),
-        ]),
-      );
-    });
+  const attempts = paginate("attempts", (store.get("monitor")?.upstream?.recent || []).slice().reverse());
+  attempts.forEach((attempt) => {
+    host.append(
+      el("tr", {}, [
+        el("td", { class: "mono", text: timeOnly(attempt.time) }),
+        el("td", { class: "mono", text: attempt.request_id }),
+        el("td", { text: attempt.model }),
+        el("td", { text: `${attempt.tier} / ${attempt.channel}` }),
+        el("td", { text: attempt.key_id }),
+        el("td", { text: attempt.proxy_node }),
+        el("td", { class: attempt.success ? "ok" : "bad", text: attempt.status || attempt.outcome }),
+        el("td", { class: "num", text: `${attempt.duration_ms} ms` }),
+      ]),
+    );
+  });
   if (!host.children.length) emptyRow(host, 8, t("尚无上游尝试", "diag.noAttempts"));
 }
 
@@ -285,6 +315,11 @@ function renderRouteModels() {
   if (!host.children.length) emptyRow(host, 6, t("没有匹配模型", "diag.noMatch"));
 }
 
+const pagerState = {
+  requests: { page: 1, size: 100 },
+  attempts: { page: 1, size: 100 },
+};
+
 let activeTab = "playground";
 
 function renderLedger() {
@@ -329,6 +364,21 @@ export default {
       copyText($("#play-output").textContent, t("原始响应已复制", "toast.play.copied")),
     );
     $("#diagnostic-model-search").addEventListener("input", renderRouteModels);
+    for (const name of ["requests", "attempts"]) {
+      $(`#${name}-pager-prev`).addEventListener("click", () => {
+        pagerState[name].page -= 1;
+        renderLedger();
+      });
+      $(`#${name}-pager-next`).addEventListener("click", () => {
+        pagerState[name].page += 1;
+        renderLedger();
+      });
+      $(`#${name}-pager-size`).addEventListener("change", (event) => {
+        pagerState[name].size = Number(event.target.value);
+        pagerState[name].page = 1;
+        renderLedger();
+      });
+    }
     store.on("debug", () => {
       renderModels();
       renderRoute();

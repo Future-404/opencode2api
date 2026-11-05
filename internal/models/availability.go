@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -150,6 +151,22 @@ func (s *AvailabilityRegistry) Restore(model string, now time.Time) error {
 	return s.SetManual(model, true, now)
 }
 
+// ScheduleSweep marks every automatically controlled model due for a probe,
+// so the next check pass re-probes them instead of waiting out their
+// scheduled backoff. Manually controlled records are left untouched.
+func (s *AvailabilityRegistry) ScheduleSweep() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for model, item := range s.items {
+		if item.Manual {
+			continue
+		}
+		item.NextCheck = time.Time{}
+		s.items[model] = item
+	}
+	return s.saveLocked()
+}
+
 // Record stores the result of an automatic probe that started when the record
 // was at generation. The result is dropped when Generation has moved on since
 // then or the model is under manual control. Only the reason
@@ -204,7 +221,55 @@ func (s *AvailabilityRegistry) Record(model string, generation uint64, success b
 	return s.saveLocked()
 }
 
-// saveLocked rewrites the registry file through a temporary file and a rename.
+// RecordPassiveObservation updates model availability based on real user traffic.
+// Unlike active synthetic probes, it never issues upstream requests.
+// 2xx marks model available. Generic HTTP 400, 404, 429, 403, 5xx, timeouts
+// and transport errors never disable the model. Only an explicit, authoritative
+// model-unavailable response (isModelUnavailable: model_not_found, model_retired, etc.)
+// can mark a model as disabled.
+func (s *AvailabilityRegistry) RecordPassiveObservation(model string, success bool, status int, body string, channel string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item := s.items[model]
+	if item.Manual {
+		return nil
+	}
+	item.Model = model
+	item.ProbeVersion = 1
+	item.CheckedAt = now
+	item.Channel = channel
+	if success {
+		item.Disabled = false
+		item.Reason = "passive_traffic_succeeded"
+		item.NextCheck = now.Add(FreeModelCheckInterval)
+	} else if IsModelUnavailableReason(status, body) {
+		item.Disabled = true
+		item.Reason = "model_unavailable"
+		item.NextCheck = now.Add(FailedModelCheckInterval)
+	}
+	s.items[model] = item
+	return s.saveLocked()
+}
+
+// IsModelUnavailableReason reports whether status and response body contain authoritative
+// evidence that the model is nonexistent or retired.
+func IsModelUnavailableReason(status int, body string) bool {
+	if status != 400 && status != 404 && status != 410 && status != 422 {
+		return false
+	}
+	text := strings.ToLower(body)
+	for _, marker := range []string{
+		"model_not_found", "model_not_available", "model_retired",
+		"model_deprecated", "unknown model", "model does not exist",
+		"model has been retired", "model is no longer available",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // It is a no-op without a path. The caller holds s.mu for writing.
 func (s *AvailabilityRegistry) saveLocked() error {
 	if s.path == "" {

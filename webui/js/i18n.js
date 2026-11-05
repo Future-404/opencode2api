@@ -77,6 +77,10 @@ const DICTIONARY = {
 
       "topbar.refresh": "Refresh now",
       "topbar.logout": "Sign out",
+      "theme.toggle": "Toggle theme",
+      "theme.auto": "System",
+      "theme.light": "Light",
+      "theme.dark": "Dark",
 
       "page.availability.title": "Free model availability",
       "page.availability.sub": "Probed hourly; user-controlled models are not affected.",
@@ -107,6 +111,7 @@ const DICTIONARY = {
 
       "availability.title": "Probe free models",
       "availability.refresh": "Refresh status",
+      "availability.probeScheduled": "A re-probe has been scheduled; results will update as models are checked.",
       "availability.desc":
         "Probes models whose metadata name contains free or whose price is 0 and that have not been excluded. The anonymous channel is tried first, and a Zen Key only after that; a model is disabled once it is genuinely broken and retried after 24 hours. Transient errors do not add extra disabled models: an enabled model is retried after 1 hour, and a disabled one keeps its old reason and is retried after 24 hours. When a model is re-enabled or switched to manual control it stays enabled and is no longer probed automatically; when it switches back to automatic, the next scheduler tick schedules the probe. System One uses its own dedicated 1+1 decision question set. With the effort set to auto, the highest probed and verified effort is shown.",
       "availability.col.model": "Model",
@@ -204,6 +209,10 @@ const DICTIONARY = {
       "playground.key.auto": "Automatic routing (anonymous / Tier fallback / Key rotation)",
       "playground.key.caption":
         "When a specific key is chosen, only that key is tried: no switch to another key, another Tier, or the anonymous channel, and no change to the key's cooldown state or the proxy's health.",
+      "playground.relay": "Relay",
+      "playground.relay.auto": "Any relay (normal routing)",
+      "playground.relay.caption":
+        "Pinning a relay sends exactly one attempt through it, with real session minting, system prompt and tool shaping: no failover, and no change to cooldown or proxy health.",
       "playground.request": "Request JSON",
       "playground.reset": "Reset sample",
       "playground.run": "Send diagnostic request",
@@ -229,10 +238,14 @@ const DICTIONARY = {
       "diagnostics.models.col.cost": "Input / output cost",
       "diagnostics.requests.title": "Request routing",
       "diagnostics.requests.caption":
-        "The key tail or anonymous channel actually used per request; only the 100 most recent records are shown.",
+        "The key tail or anonymous channel actually used per request; the 500 most recent records, paged.",
       "diagnostics.attempts.title": "Upstream attempts",
       "diagnostics.attempts.caption":
-        "Key tail, anonymous channel, and proxy node are masked; only the 100 most recent records are shown.",
+        "Key tail, anonymous channel, and proxy node are masked; the 500 most recent records, paged.",
+      "diag.pager.prev": "Previous",
+      "diag.pager.next": "Next",
+      "diag.pager.info": "Page {0} of {1} · {2} entries",
+      "diag.pager.size": "Rows per page",
       "diagnostics.col.time": "Time",
       "diagnostics.col.model": "Model",
       "diagnostics.col.tier": "Tier",
@@ -284,6 +297,7 @@ const DICTIONARY = {
       "config.upstream.anon.hint":
         "OpenCode v2 keyless free inference endpoint; leave empty for default https://opencode.ai/inference.",
       "config.upstream.freeOnly": "Only expose free models (even when Zen / Go Keys are configured)",
+      "config.upstream.activeProbes": "Enable active background probes for free models (disabled by default to save quota)",
       "config.upstream.attempts": "Max attempts per Key Tier",
       "config.upstream.timeout": "Request timeout (seconds)",
       "config.upstream.refresh": "Model refresh interval (seconds)",
@@ -430,6 +444,8 @@ const DICTIONARY = {
       "common.clipboard": "The browser does not allow clipboard access",
       "common.empty": "No data yet",
       "common.remove": "Remove",
+      "config.chips.expand": "Show all ({0})",
+      "config.chips.collapse": "Collapse",
       "common.duration": "Duration",
       "common.model": "Model",
       "common.action": "Action",
@@ -470,6 +486,7 @@ const DICTIONARY = {
       "play.mode.selected": "Specified {0} key",
       "play.mode.auto": "Automatic routing",
       "play.testedKey": "Key tested",
+      "play.testedRelay": "Relay tested",
       "play.keyVerdict": "Key verdict",
       "play.keyVerdict.none": "Automatic routing has no dedicated verdict",
       "play.key.usable": "Key usable",
@@ -664,6 +681,10 @@ const DICTIONARY = {
 
       "topbar.refresh": "Làm mới ngay",
       "topbar.logout": "Đăng xuất",
+      "theme.toggle": "Đổi chủ đề",
+      "theme.auto": "Theo hệ thống",
+      "theme.light": "Sáng",
+      "theme.dark": "Tối",
 
       "page.availability.title": "Mô hình miễn phí",
       "page.availability.sub": "Dò mỗi giờ; mô hình do người dùng điều khiển không bị ảnh hưởng.",
@@ -694,6 +715,8 @@ const DICTIONARY = {
 
       "availability.title": "Dò mô hình miễn phí",
       "availability.refresh": "Làm mới trạng thái",
+      "availability.probeScheduled":
+        "Đã lên lịch dò lại; kết quả sẽ cập nhật sau khi các mô hình được kiểm tra.",
       "availability.desc":
         "Kiểm tra các mô hình có tên chứa free hoặc giá bằng 0 trong metadata và chưa bị loại bỏ. Ưu tiên kênh ẩn danh, sau đó mới thử Zen Key; chỉ vô hiệu hóa khi mô hình hẳn đã hỏng và thử lại sau 24 giờ. Lỗi tạm thời không tạo thêm mô hình bị vô hiệu hóa: mô hình đang bật thử lại sau 1 giờ, mô hình đã tắt giữ nguyên lý do cũ và thử lại sau 24 giờ. Khi khôi phục bật hoặc chuyển sang điều khiển thủ công, mô hình giữ nguyên bật và không còn được dò tự động; khi chuyển lại tự động, lượt định tuyến kế tiếp sẽ sắp xếp lần dò. System One dùng bộ câu hỏi quyết định riêng 1+1. Khi đặt cường độ auto, hiển thị bậc cao nhất đã được dò xác minh.",
       "availability.col.model": "Mô hình",
@@ -791,6 +814,10 @@ const DICTIONARY = {
       "playground.key.auto": "Định tuyến tự động (ẩn danh / dự phòng Tier / luân phiên Key)",
       "playground.key.caption":
         "Khi chọn một Key cụ thể, chỉ Key đó được thử: không chuyển sang Key khác, Tier khác hay kênh ẩn danh, và không làm thay đổi trạng thái cooldown của Key hay sức khoẻ của proxy.",
+      "playground.relay": "Relay",
+      "playground.relay.auto": "Mọi relay (định tuyến thường)",
+      "playground.relay.caption":
+        "Ghim một relay sẽ gửi đúng một lần thử qua nó, với session, system prompt và tool shaping thật: không failover, không đổi cooldown hay sức khoẻ proxy.",
       "playground.request": "JSON của request",
       "playground.reset": "Đặt lại mẫu",
       "playground.run": "Gửi request chẩn đoán",
@@ -816,10 +843,14 @@ const DICTIONARY = {
       "diagnostics.models.col.cost": "Chi phí input / output",
       "diagnostics.requests.title": "Định tuyến request",
       "diagnostics.requests.caption":
-        "Đuôi Key hoặc anonymous thực sự được dùng cho từng request; hiển thị tối đa 100 bản ghi gần nhất.",
+        "Đuôi Key hoặc anonymous thực sự được dùng cho từng request; 500 bản ghi gần nhất, có phân trang.",
       "diagnostics.attempts.title": "Lần thử upstream",
       "diagnostics.attempts.caption":
-        "Đuôi Key, kênh ẩn danh và nút proxy đã che; hiển thị tối đa 100 bản ghi gần nhất.",
+        "Đuôi Key, kênh ẩn danh và nút proxy đã che; 500 bản ghi gần nhất, có phân trang.",
+      "diag.pager.prev": "Trang trước",
+      "diag.pager.next": "Trang sau",
+      "diag.pager.info": "Trang {0} / {1} · {2} mục",
+      "diag.pager.size": "Số dòng mỗi trang",
       "diagnostics.col.time": "Thời gian",
       "diagnostics.col.model": "Mô hình",
       "diagnostics.col.tier": "Tier",
@@ -871,6 +902,7 @@ const DICTIONARY = {
       "config.upstream.anon.hint":
         "Kênh suy luận miễn phí không cần Key của OpenCode v2; để trống mặc định là https://opencode.ai/inference.",
       "config.upstream.freeOnly": "Chỉ công khai mô hình miễn phí (kể cả khi đã cấu hình Zen / Go Key)",
+      "config.upstream.activeProbes": "Bật probe chủ động ngầm cho mô hình miễn phí (mặc định tắt để tiết kiệm hạn mức)",
       "config.upstream.attempts": "Số lần thử tối đa cho mỗi Key Tier",
       "config.upstream.timeout": "Timeout của request (giây)",
       "config.upstream.refresh": "Làm mới mô hình (giây)",
@@ -1018,6 +1050,8 @@ const DICTIONARY = {
       "common.clipboard": "Trình duyệt không cho phép truy cập clipboard",
       "common.empty": "Chưa có dữ liệu",
       "common.remove": "Gỡ bỏ",
+      "config.chips.expand": "Hiện tất cả ({0})",
+      "config.chips.collapse": "Thu gọn",
       "common.duration": "Thời gian",
       "common.model": "Mô hình",
       "common.action": "Thao tác",
@@ -1058,6 +1092,7 @@ const DICTIONARY = {
       "play.mode.selected": "Chỉ định Key {0}",
       "play.mode.auto": "Định tuyến tự động",
       "play.testedKey": "Key được thử",
+      "play.testedRelay": "Relay được thử",
       "play.keyVerdict": "Kết luận về Key",
       "play.keyVerdict.none": "Định tuyến tự động không có kết luận riêng",
       "play.key.usable": "Key dùng được",
@@ -1252,6 +1287,10 @@ const DICTIONARY = {
 
       "topbar.refresh": "Aggiorna ora",
       "topbar.logout": "Esci",
+      "theme.toggle": "Cambia tema",
+      "theme.auto": "Sistema",
+      "theme.light": "Chiaro",
+      "theme.dark": "Scuro",
 
       "page.availability.title": "Disponibilità modelli gratuiti",
       "page.availability.sub":
@@ -1287,6 +1326,8 @@ const DICTIONARY = {
 
       "availability.title": "Verifica modelli gratuiti",
       "availability.refresh": "Aggiorna stato",
+      "availability.probeScheduled":
+        "Una riverifica è stata programmata; i risultati si aggiorneranno al termine dei controlli.",
       "availability.desc":
         "Verifica i modelli il cui nome nei metadati contiene free o il cui prezzo è 0 e che non sono stati esclusi. Si prova prima il canale anonimo e solo dopo una Zen Key; un modello viene disabilitato quando è realmente guasto e ritentato dopo 24 ore. Gli errori transitori non aggiungono altri modelli disabilitati: un modello abilitato viene ritentato dopo 1 ora, mentre uno disabilitato conserva il motivo precedente ed è ritentato dopo 24 ore. Quando un modello viene riabilitato o passato al controllo manuale resta abilitato e non viene più verificato automaticamente; tornando in automatico, il successivo tick dello scheduler pianifica la verifica. System One usa un proprio insieme di domande di verifica 1+1. Con il livello impostato su auto viene applicato il livello massimo di ragionamento verificato.",
       "availability.col.model": "Modello",
@@ -1389,6 +1430,10 @@ const DICTIONARY = {
         "Instradamento automatico (anonimo / fallback Tier / rotazione chiavi)",
       "playground.key.caption":
         "Quando viene scelta una chiave specifica, si prova solo quella: nessun passaggio a un'altra chiave, a un altro Tier o al canale anonimo, e nessuna modifica allo stato di cooldown della chiave o all'integrità del proxy.",
+      "playground.relay": "Relay",
+      "playground.relay.auto": "Qualsiasi relay (routing normale)",
+      "playground.relay.caption":
+        "Fissare un relay invia esattamente un tentativo attraverso di esso, con sessione, system prompt e tool shaping reali: nessun failover, nessuna modifica a cooldown o integrità del proxy.",
       "playground.request": "JSON della richiesta",
       "playground.reset": "Reimposta esempio",
       "playground.run": "Invia richiesta diagnostica",
@@ -1414,10 +1459,14 @@ const DICTIONARY = {
       "diagnostics.models.col.cost": "Costo input / output",
       "diagnostics.requests.title": "Instradamento richieste",
       "diagnostics.requests.caption":
-        "La coda della chiave o il canale anonimo effettivamente usati per richiesta; sono mostrati solo i 100 record più recenti.",
+        "La coda della chiave o il canale anonimo effettivamente usati per richiesta; i 500 record più recenti, paginati.",
       "diagnostics.attempts.title": "Tentativi upstream",
       "diagnostics.attempts.caption":
-        "Ultimi caratteri della chiave, canale anonimo e nodo proxy sono mascherati; sono mostrati solo i 100 record più recenti.",
+        "Ultimi caratteri della chiave, canale anonimo e nodo proxy sono mascherati; i 500 record più recenti, paginati.",
+      "diag.pager.prev": "Precedente",
+      "diag.pager.next": "Successiva",
+      "diag.pager.info": "Pagina {0} di {1} · {2} voci",
+      "diag.pager.size": "Righe per pagina",
       "diagnostics.col.time": "Ora",
       "diagnostics.col.model": "Modello",
       "diagnostics.col.tier": "Tier",
@@ -1471,6 +1520,8 @@ const DICTIONARY = {
         "Endpoint di inferenza gratuita senza chiavi di OpenCode v2; lascia vuoto per il predefinito https://opencode.ai/inference.",
       "config.upstream.freeOnly":
         "Espone solo modelli gratuiti (anche quando sono configurate Zen / Go Key)",
+      "config.upstream.activeProbes":
+        "Abilita i probe attivi in background per i modelli gratuiti (disabilitato per impostazione predefinita)",
       "config.upstream.attempts": "Tentativi massimi per Key Tier",
       "config.upstream.timeout": "Timeout richiesta (secondi)",
       "config.upstream.refresh": "Intervallo di refresh modelli (secondi)",
@@ -1618,6 +1669,8 @@ const DICTIONARY = {
       "common.clipboard": "Il browser non consente l'accesso agli appunti",
       "common.empty": "Nessun dato",
       "common.remove": "Rimuovi",
+      "config.chips.expand": "Mostra tutti ({0})",
+      "config.chips.collapse": "Comprimi",
       "common.duration": "Durata",
       "common.model": "Modello",
       "common.action": "Azione",
@@ -1659,6 +1712,7 @@ const DICTIONARY = {
       "play.mode.selected": "Chiave {0} specificata",
       "play.mode.auto": "Instradamento automatico",
       "play.testedKey": "Chiave testata",
+      "play.testedRelay": "Relay testato",
       "play.keyVerdict": "Verdetto sulla chiave",
       "play.keyVerdict.none": "L'instradamento automatico non ha un verdetto dedicato",
       "play.key.usable": "Chiave utilizzabile",

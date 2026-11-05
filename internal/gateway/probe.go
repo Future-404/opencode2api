@@ -88,6 +88,21 @@ func probePayload(model string, protocol wire.Protocol, effort string, v1 bool) 
 // effort it accepts on this protocol. The reason is model_unavailable only
 // when every lane reported it; any other failure keeps the result
 // inconclusive.
+// probeRequestIDs returns the upstream identity of one probe. A probe is not a
+// conversation, so it must not present a pinned one: a fixed project id and a
+// session derived from the model name are one bucket shared with every
+// deployment that runs the same probe, and once that bucket is charged on a
+// popular exit the probe answers 429 while live traffic on the same process and
+// egress succeeds. Fresh identity per probe keeps each check on its own bucket;
+// the availability cache already holds the answer for the next interval, so
+// nothing is gained by reusing one.
+func probeRequestIDs() identity.RequestIDs {
+	return identity.RequestIDs{
+		Session: identity.CanonicalSessionID(identity.RandomID("availability", 16)),
+		Project: identity.RandomProjectID(),
+	}
+}
+
 func (g *Gateway) probeFreeModel(ctx context.Context, model string) probeResult {
 	if !g.catalog.IsFreeModel(model) {
 		return probeResult{reason: "not_free"}
@@ -97,7 +112,7 @@ func (g *Gateway) probeFreeModel(ctx context.Context, model string) probeResult 
 	if !d.AvailableZen || !g.catalog.Supported(model) {
 		return probeResult{reason: "unsupported_probe"}
 	}
-	ids := identity.RequestIDs{Session: identity.RotateSessionID(), Project: "opencode2api:default-project"}
+	ids := probeRequestIDs()
 	type lane struct {
 		key, name, baseURL string
 		client             *http.Client
@@ -276,7 +291,7 @@ func (g *Gateway) probeAttempt(parent context.Context, client *http.Client, base
 				return probeResult{attempted: true, reason: "network_abuse_blocked"}
 			}
 			result.effortRejected = isEffortRejection(resp.StatusCode, string(body))
-			if isModelUnavailable(resp.StatusCode, string(body)) {
+			if IsModelUnavailable(resp.StatusCode, string(body)) {
 				result.reason = "model_unavailable"
 			}
 		}
@@ -318,7 +333,7 @@ func (g *Gateway) probeAttempt(parent context.Context, client *http.Client, base
 		result.reason = "invalid_or_incomplete_response"
 		if err != nil {
 			result.effortRejected = isEffortRejection(400, err.Error())
-			if isModelUnavailable(400, err.Error()) {
+			if IsModelUnavailable(400, err.Error()) {
 				result.reason = "model_unavailable"
 			}
 		}
@@ -329,10 +344,10 @@ func (g *Gateway) probeAttempt(parent context.Context, client *http.Client, base
 	return result
 }
 
-// isModelUnavailable reports whether a 400, 404, 410 or 422 error body says
+// IsModelUnavailable reports whether a 400, 404, 410 or 422 error body says
 // the model itself is unknown, retired or no longer available, as opposed to
 // a transient or credential failure.
-func isModelUnavailable(status int, body string) bool {
+func IsModelUnavailable(status int, body string) bool {
 	if status != 400 && status != 404 && status != 410 && status != 422 {
 		return false
 	}

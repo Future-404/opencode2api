@@ -521,8 +521,11 @@ func TestGateway_HedgedToolRenamingPreservedOnWinner(t *testing.T) {
 		t.Fatalf("expected non-empty tool renames preserved on parent context, got %v", shape.renames)
 	}
 	wireName, ok := shape.renames.Wire("custom_tool")
-	if !ok || wireName != "clint_custom_tool" {
-		t.Fatalf("expected custom_tool to map to clint_custom_tool, got ok=%v, wireName=%s", ok, wireName)
+	if !ok || !strings.HasPrefix(wireName, wire.ClientToolPrefix) {
+		t.Fatalf("expected custom_tool to map to wire name starting with %s, got ok=%v, wireName=%s", wire.ClientToolPrefix, ok, wireName)
+	}
+	if resolved, _ := shape.renames.Resolve(wireName); resolved != "custom_tool" {
+		t.Fatalf("expected wireName %s to resolve to custom_tool, got %s", wireName, resolved)
 	}
 	if meta.ToolRenames == 0 {
 		t.Fatalf("expected meta.ToolRenames > 0, got %d", meta.ToolRenames)

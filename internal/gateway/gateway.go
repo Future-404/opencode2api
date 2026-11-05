@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"opencode2api/internal/config"
@@ -96,6 +97,8 @@ type Gateway struct {
 	// freeTierBlock is how long an exit the free tier flagged stays out of the
 	// anonymous cursor. Zero uses freeTierBlockTTL.
 	freeTierBlock time.Duration
+	// refreshMu prevents overlapping catalog refreshes across concurrent or scheduled callers.
+	refreshMu sync.Mutex
 }
 
 // New builds a Gateway for cfg: one proxy transport per runtime proxy (a
@@ -104,6 +107,9 @@ type Gateway struct {
 // rotation manager is not persisted; RuntimeController replaces it with the
 // shared one.
 func New(cfg config.Config, logger *slog.Logger, monitor *telemetry.Metrics, warpPool *warp.Pool) (*Gateway, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	cfg.Rotation.Defaults()
 	rotationManager, err := rotation.New("", cfg.Rotation)
 	if err != nil {
@@ -114,11 +120,11 @@ func New(cfg config.Config, logger *slog.Logger, monitor *telemetry.Metrics, war
 		return nil, err
 	}
 	cooldown := time.Duration(cfg.Performance.FailureCooldownSeconds) * time.Second
-	zenNodes, err := nodePool(cfg.ZenKeys, transports, cooldown)
+	zenNodes, err := nodePool(cfg.ZenKeys, transports, cooldown, cfg.ProxyBindings)
 	if err != nil {
 		return nil, fmt.Errorf("zen node pool: %w", err)
 	}
-	goNodes, err := nodePool(cfg.GoKeys, transports, cooldown)
+	goNodes, err := nodePool(cfg.GoKeys, transports, cooldown, cfg.ProxyBindings)
 	if err != nil {
 		return nil, fmt.Errorf("go node pool: %w", err)
 	}
@@ -279,7 +285,19 @@ func (g *Gateway) handleInference(external wire.Protocol) http.HandlerFunc {
 			return
 		}
 		if !g.catalog.Supported(model) {
-			wire.WriteError(w, external, http.StatusBadRequest, "the model uses an upstream protocol that opencode2api does not expose", "invalid_request_error", "model")
+			// A model the catalog has never heard of is a bad model NAME: 404
+			// tells a client to pick a different model. A model the catalog
+			// knows but cannot serve is a capability or routing problem, and
+			// the old 400 phrasing ("the model uses an upstream protocol that
+			// opencode2api does not expose") is accurate for it. The old code
+			// returned that 400 for BOTH, so a request for a model the
+			// upstream retired (it answers 410 Gone) looked like a gateway
+			// capability bug and clients retried forever.
+			if g.catalog.Known(model) {
+				wire.WriteError(w, external, http.StatusBadRequest, "the model uses an upstream protocol that opencode2api does not expose", "invalid_request_error", "model")
+			} else {
+				wire.WriteError(w, external, http.StatusNotFound, fmt.Sprintf("model %q was not found in the upstream model catalog", model), "model_not_found", "model")
+			}
 			return
 		}
 		route, err := g.catalog.Route(model, len(g.cfg.ZenKeys) > 0, len(g.cfg.GoKeys) > 0, g.cfg.Anonymous)
@@ -360,7 +378,15 @@ func (g *Gateway) handleInference(external wire.Protocol) http.HandlerFunc {
 			// An exhausted request budget is a timeout, not a bad gateway: the
 			// distinction matters to clients that retry on 502.
 			if errors.Is(err, context.DeadlineExceeded) {
-				wire.WriteError(w, external, http.StatusGatewayTimeout, "upstream request timed out", "upstream_timeout", ids.Request)
+				// A write-phase failure means the upstream never finished
+				// reading the request body: the payload is too large. Report
+				// it as 413 so a client that can shrink the request (a harness
+				// that strips oversized inline images) knows to shrink it
+				// instead of retrying the same oversized payload forever. A
+				// header- or first-event-phase failure is the upstream being
+				// slow, which is not the client's fault, and stays a 504.
+				status, message, code := timeoutStatus(err, requestCtx.Err() == nil)
+				wire.WriteError(w, external, status, message, code, ids.Request)
 				return
 			}
 			// Every exit this request could use is under the free tier's IP
@@ -487,7 +513,14 @@ func (g *Gateway) handleSystemOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !g.catalog.Supported(model) {
-		wire.WriteError(w, wire.SystemOne, http.StatusBadRequest, "the model uses an upstream protocol that opencode2api does not expose", "invalid_request_error", "model")
+		// Same split as the chat path: a model the catalog has never heard of
+		// is a bad model NAME (404), a model it knows but cannot serve is a
+		// capability or routing problem (400).
+		if g.catalog.Known(model) {
+			wire.WriteError(w, wire.SystemOne, http.StatusBadRequest, "the model uses an upstream protocol that opencode2api does not expose", "invalid_request_error", "model")
+		} else {
+			wire.WriteError(w, wire.SystemOne, http.StatusNotFound, fmt.Sprintf("model %q was not found in the upstream model catalog", model), "model_not_found", "model")
+		}
 		return
 	}
 	route, err := g.catalog.Route(model, len(g.cfg.ZenKeys) > 0, len(g.cfg.GoKeys) > 0, g.cfg.Anonymous)
@@ -553,7 +586,11 @@ func (g *Gateway) forwardSystemOne(w http.ResponseWriter, r *http.Request, body 
 			return
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
-			wire.WriteError(w, wire.SystemOne, http.StatusGatewayTimeout, "upstream request timed out", "upstream_timeout", ids.Request)
+			// Same split as the chat path: a write-phase failure means the
+			// payload is too large (413), every other phase is a slow
+			// upstream (504).
+			status, message, code := timeoutStatus(err, requestCtx.Err() == nil)
+			wire.WriteError(w, wire.SystemOne, status, message, code, ids.Request)
 			return
 		}
 		wire.WriteError(w, wire.SystemOne, http.StatusBadGateway, "all upstream attempts failed", "upstream_error", ids.Request)
