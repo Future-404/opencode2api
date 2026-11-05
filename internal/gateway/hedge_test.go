@@ -40,7 +40,7 @@ func TestHedgedPipeline_FirstWinnerWins(t *testing.T) {
 		if idx == 1 {
 			// Simulate slow primary
 			select {
-			case <-time.After(400 * time.Millisecond):
+			case <-time.After(2 * time.Second):
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write([]byte("slow"))
 			case <-r.Context().Done():

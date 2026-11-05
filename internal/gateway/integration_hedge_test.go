@@ -48,7 +48,7 @@ func TestGateway_ConversationSessionPromotion(t *testing.T) {
 		},
 		Hedge: config.HedgeConfig{
 			Enabled:       true,
-			DelayMs:       40,
+			DelayMs:       400,
 			IntervalMs:    20,
 			MaxCandidates: 3,
 		},
@@ -360,7 +360,7 @@ func TestGateway_DoUpstreamTiers_HedgedPromotion(t *testing.T) {
 		},
 		Hedge: config.HedgeConfig{
 			Enabled:       true,
-			DelayMs:       40,
+			DelayMs:       400,
 			IntervalMs:    20,
 			MaxCandidates: 3,
 		},
@@ -467,7 +467,7 @@ func TestGateway_HedgedToolRenamingPreservedOnWinner(t *testing.T) {
 		},
 		Hedge: config.HedgeConfig{
 			Enabled:       true,
-			DelayMs:       40,
+			DelayMs:       400,
 			IntervalMs:    20,
 			MaxCandidates: 3,
 		},

@@ -251,9 +251,9 @@ func mintBootNonce() []byte {
 // message a genuinely exhausted IP receives — so a hash-derived timestamp
 // (which landed in 1970) made every free request fail however many WARP exits
 // were rotated. The encoding below therefore draws the timestamp from a slow
-// clock instead of the hash: today's UTC midnight minus a hash-derived offset
-// of at most sessionTimestampWindow. The id stays stable for a whole day, which
-// is all the affinity a live conversation needs, and its date never leaves the
+// clock instead of the hash: a recent UTC time minus a hash-derived offset
+// bounded by sessionTimestampWindow (30 minutes). The id stays stable within the process,
+// which is all the affinity a live conversation needs, and its date never leaves the
 // window the upstream accepts.
 func CanonicalSessionID(signal string) string {
 	if isOfficialSessionID(signal) {
